@@ -37,11 +37,6 @@
 
 window.onload = function() {
   document.querySelector('input#imageUpload').onchange = loadImage;
-
-  // test data
-  const lightness = Array(120).fill(0).concat([...Array(60).keys()].map((i) => i*1.6667), Array(120).fill(100));
-  console.log(lightness)
-  console.log(`findTransitionIndex(lightness): ${findTransitionIndex(lightness)}`)
 }
 
 function loadImage() {
@@ -62,7 +57,7 @@ function loadImage() {
 
       // Find the average healthy and dead color
       const leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk);
-      const {healthyColor, deadColor} = getHealthyDeadColors(leafDiskBlobs, pixels);
+      ({leafDiskBlobs, pixels} = setNecroticPixels(leafDiskBlobs, pixels));
 
 
 
@@ -334,7 +329,7 @@ function isWithinTolerance(correctNum, num, tolerance) {
 }
 
 // Sort pixels into healthy (dark) and dead (light)
-function getHealthyDeadColors(leafDiskBlobs, pixels) {
+function setNecroticPixels(leafDiskBlobs, pixels) {
   // Create a list of all leaf pixels from the blob coordinates
   const leafPixelCoordinates = [].concat(...leafDiskBlobs.map((blob) => blob.pixelCoordinates));
   const leafPixels = leafPixelCoordinates.map((coordinate) => pixels[coordinate.y][coordinate.x]);
@@ -342,22 +337,15 @@ function getHealthyDeadColors(leafDiskBlobs, pixels) {
   // Use sum of rgb color values to approximate darkness
   const colorSums = leafPixels.map((pixel) => pixel.r + pixel.g + pixel.b).sort((a, b) => a - b);
 
+  // Index at the center of the transition between the healthy and necrotic color plateaus
+  const transitionI = findTransitionIndex(colorSums);
 
-  // console.log(colorSums);
-  // console.log(findTransitionIndex(colorSums));
-
-
-
+  console.log(transitionI);
 
 
 
 
-
-
-
-  // Sort sums into light and dark or just pull list of coordinates of necrotic
-  // pull colors with that sum
-  // Average colors (healthy and dead)
+  // Set list of coordinates of necrotic
 }
 
 function slope(x1, y1, x2, y2) {
@@ -367,72 +355,55 @@ function slope(x1, y1, x2, y2) {
 // Find where the data transitions between the two plateaus
 // The two plateaus are the healthy (dark) and dead (light) colors
 function findTransitionIndex(data) {
-  // Divide into 200 sections and average over 10%
+  // Average over 10% to smooth out data
   // Spike in slopes corresponds to the transition (slope increases then decreases)
-
-
-  // const slopes = smoothedDerivative(data, data.length/200, 0.1);
-  const slopes = smoothedDerivative(data, 3, 0.1);
+  const slopes = smoothedDerivative(data, 0.05);
   const peakI = findPeak(slopes);
 
-  // console.log('findTransitionIndex')
-  // console.log(`findTransitionIndex-slopes`)
-  // console.log(slopes)
-  // console.log(`findTransitionIndex-peakI: ${peakI}`)
-  // console.log('================================')
-
-  return (peakI/slopes.length)*(data.length-1);
+  return scaleArrayIndex(peakI, data.length, 0.05);
 }
 
 // Find the peak of the data (spike in the middle of the graph, not the maximum value)
 function findPeak(data) {
   // The peak is where the slope goes from positive to negative (x intercept)
-  const slopes = smoothedDerivative(data, 1, 0.05);
+  const slopes = smoothedDerivative(data, 0.05);
+
   // The local maximum is now the minimum of all the data
-  const slopeDerivative = smoothedDerivative(slopes, 1, 0.01);
+  const slopeDerivative = smoothedDerivative(slopes, 0.01);
+
   // Position of minimum
-  const minIndex = slopeDerivative.indexOf(Math.min(...slopeDerivative));
-  // Index of x intercept of `slopes`
+  const minI = slopeDerivative.indexOf(Math.min(...slopeDerivative));
 
+  // x intercept of `slopes`
+  const xInterceptI = scaleArrayIndex(minI, slopes.length, 0.01);
 
-
-  console.log('findPeak')
-  console.log(`slopes`)
-  console.log(slopes)
-  console.log(`slopeDerivative`)
-  console.log(slopeDerivative)
-  console.log(`minPosition`)
-  console.log(minIndex)
-  console.log(`slopesXInterceptIndex`)
-  console.log(scaleArrayIndex(minIndex, slopeDerivative.length, slopes.length))
-  console.log('================================')
-
-
-
-  return scaleArrayIndex(minIndex, slopeDerivative.length, slopes.length);
+  return scaleArrayIndex(xInterceptI, data.length, 0.05);
 }
 
-// Scale an index from one array to and index in an array of a different length
-function scaleArrayIndex(i, length, newLength) {
-  // If we have an array of length n and evenly space n positions in the array, the position will be i + 0.5
-  return (i + 0.5)*(newLength/length) - 0.5;
+// Scale an index from the smoothedDerivative array to the corresponding index in the original array
+function scaleArrayIndex(i, originalLength, smoothingFactor) {
+  const chunkSize = chunkLength(originalLength, smoothingFactor);
+
+  return i + (chunkSize - 1)/2;
 }
 
-
-
-// Calculate the derivative using intervals of `step` and chunks of `chunkAmount` to smooth it out
-function smoothedDerivative(data, step, chunkAmount) {
+// Calculate the derivative using chunks of `smoothingFactor` to smooth it out
+function smoothedDerivative(data, smoothingFactor) {
   const slopes = [];
-  // Needs to be at least 2 to calculate linear regression
-  const chunkLength = Math.max(Math.round(data.length*chunkAmount), 2);
-  const end = data.length - chunkLength;
+  const chunkSize = chunkLength(data.length, smoothingFactor);
+  const end = data.length*(1 - smoothingFactor);
 
-  for (let i = 0; i < end; i += step) {
-    const chunk = data.slice(i, i+chunkLength)
+  for (let i = 0; i <= end; i++) {
+    const chunk = data.slice(i, i + chunkSize);
     slopes.push(linearRegression(chunk).slope);
   }
 
   return slopes;
+}
+
+function chunkLength(dataLength, smoothingFactor) {
+  // Needs to be at least 2 to calculate linear regression
+  return Math.max(Math.round(dataLength*smoothingFactor), 2);
 }
 
 // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
