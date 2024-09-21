@@ -56,7 +56,7 @@ function loadImage() {
       pixels = drawBlobBorders(blobs, pixels);
 
       // Find the average healthy and dead color
-      const leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk);
+      let leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk);
       ({leafDiskBlobs, pixels} = setNecroticPixels(leafDiskBlobs, pixels));
 
 
@@ -330,22 +330,31 @@ function isWithinTolerance(correctNum, num, tolerance) {
 
 // Sort pixels into healthy (dark) and dead (light)
 function setNecroticPixels(leafDiskBlobs, pixels) {
-  // Create a list of all leaf pixels from the blob coordinates
-  const leafPixelCoordinates = [].concat(...leafDiskBlobs.map((blob) => blob.pixelCoordinates));
-  const leafPixels = leafPixelCoordinates.map((coordinate) => pixels[coordinate.y][coordinate.x]);
+  leafDiskBlobs.forEach((blob) => {
 
-  // Use sum of rgb color values to approximate darkness
-  const colorSums = leafPixels.map((pixel) => pixel.r + pixel.g + pixel.b).sort((a, b) => a - b);
+    // Create an array of the sums and their corresponding coordinates
+    const colorSums = blob.pixelCoordinates.map((coordinate) => colorSum(coordinate, pixels));
+    colorSums.sort((a, b) => a.sum - b.sum);
 
-  // Index at the center of the transition between the healthy and necrotic color plateaus
-  const transitionI = findTransitionIndex(colorSums);
+    // Index at the center of the transition between the healthy and necrotic color plateaus
+    const transitionI = findTransitionIndex(colorSums.map((colorSum) => colorSum.sum));
 
-  console.log(transitionI);
+    console.log(`transitionI: ${transitionI}, sum: ${colorSums[transitionI].sum}`);
+    // Set list of coordinates of necrotic
+  });
 
 
+  return leafDiskBlobs;
+}
 
+// Sum up the rgb values of the pixel to be used as a brightness value
+function colorSum(coordinate, pixels) {
+  const pixel = pixels[coordinate.y][coordinate.x];
 
-  // Set list of coordinates of necrotic
+  return {
+    sum: pixel.r + pixel.g + pixel.b,
+    coordinate: coordinate
+  };
 }
 
 function slope(x1, y1, x2, y2) {
@@ -360,7 +369,7 @@ function findTransitionIndex(data) {
   const slopes = smoothedDerivative(data, 0.05);
   const peakI = findPeak(slopes);
 
-  return scaleArrayIndex(peakI, data.length, 0.05);
+  return Math.round(scaleArrayIndex(peakI, data.length, 0.05));
 }
 
 // Find the peak of the data (spike in the middle of the graph, not the maximum value)
