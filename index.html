@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Image Upload</title>
+    <script src="calcs.js"></script>
+  </head>
+  <body>
+    <h1>Upload an Image</h1>
+    <form>
+      <label for="imageUpload">Choose an image:</label>
+      <input type="file" id="imageUpload" name="imageUpload" accept="image/*" required>
+    </form>
+    <div style="display: inline-block; width: 45%">
+      <h2>Original</h2>
+      <img id="originalImage" style="width: 100%; user-select: none" draggable="false" />
+    </div>
+    <div style="display: inline-block; width: 45%">
+      <h2>Highlighted</h2>
+      <img id="highlighted" style="width: 100%; user-select: none" draggable="false" />
+    </div>
+  </body>
+</html>
