@@ -54,17 +54,25 @@ function loadImage() {
       let leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk);
       ({leafDiskBlobs, pixels} = setNecroticPixels(leafDiskBlobs, pixels));
 
-      // Set necroticPortion for each blob
-      leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
+      // Set necroticPortion and necroticRate for each blob
+      leafDiskBlobs.forEach((blob) => {
+        blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length;
+        blob.necroticRate = blob.necroticPortion*197.93/23;
+      });
 
       // Group blobs into rows and sort
       const rows = groupBlobsByRow(leafDiskBlobs).sort((a, b) => a[0].top - b[0].top);
 
       // Create and append concentration inputs
       const defaultConcentrations = [8, 12, 14, 16];
+      rows.forEach((row, i) => createConcentrationInput(i, (row[0].top + row[0].bottom)/2, defaultConcentrations[i]));
 
-      rows.forEach((row, i) => createConcentrationInput((row[0].top + row[0].bottom)/2, defaultConcentrations[i]));
-
+      // Enable "Calculate" button
+      const button = document.getElementById('calculate');
+      button.onclick = () => {
+        const regression = calculateSusceptibility(rows);
+        console.log(regression);
+      };
 
       document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels);
     });
@@ -410,7 +418,7 @@ function smoothedDerivative(data, smoothingFactor) {
 
   for (let i = 0; i <= end; i++) {
     const chunk = data.slice(i, i + chunkSize);
-    slopes.push(linearRegression(chunk).slope);
+    slopes.push(linearRegression(chunk.map((num, i) => ({x: i, y: num}))).slope);
   }
 
   return slopes;
@@ -427,9 +435,9 @@ function linearRegression(data) {
   let xsum = 0;
   let ysum = 0;
 
-  for (let i = 0; i < data.length; i ++) {
-    xsum += i;
-    ysum += data[i];
+  for (const point of data) {
+    xsum += point.x;
+    ysum += point.y;
   }
 
   const xmean = xsum / data.length;
@@ -438,9 +446,9 @@ function linearRegression(data) {
   let num = 0;
   let denom = 0;
 
-  for (let i = 0; i < data.length; i ++) {
-    const x = i;
-    const y = data[i];
+  for (const point of data) {
+    const x = point.x;
+    const y = point.y;
     num += (x - xmean) * (y - ymean);
     denom += (x - xmean) * (x - xmean);
   }
@@ -474,7 +482,7 @@ function groupBlobsByRow(blobs) {
 }
 
 // Create inputs for the oxalic acid concentrations of each row
-function createConcentrationInput(rowY, concentration) {
+function createConcentrationInput(rowI, rowY, concentration) {
   const originalImg = document.getElementById('originalImage');
 
   // Use the ratio of the displayed image to the original height to calculate the offset needed for the input
@@ -484,6 +492,8 @@ function createConcentrationInput(rowY, concentration) {
   // Create input
   const input = document.createElement('input');
   input.type = 'number';
+  input.classList.add('concentration');
+  input.row = rowI;
   input.value = concentration;
   input.style.position = 'absolute';
   input.style.left = '55%';
@@ -493,7 +503,21 @@ function createConcentrationInput(rowY, concentration) {
   originalImg.parentElement.append(input);
 }
 
+// Calculate the susceptibility linear regression
+function calculateSusceptibility(rows) {
+  const concentrationInputs = document.querySelectorAll('input.concentration');
+  const data = [];
 
+  concentrationInputs.forEach((input) => {
+    const row = rows[input.row];
+
+    for (const blob of row) {
+      data.push({x: Math.log10(input.value), y: blob.necroticRate});
+    }
+  });
+
+  return linearRegression(data);
+}
 
 
 
