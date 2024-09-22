@@ -63,7 +63,7 @@ function loadImage() {
       // Create and append concentration inputs
       const defaultConcentrations = [8, 12, 14, 16];
 
-      rows.forEach((row, i) => createConcentrationInput(row[0].top, defaultConcentrations[i]));
+      rows.forEach((row, i) => createConcentrationInput((row[0].top + row[0].bottom)/2, defaultConcentrations[i]));
 
 
       document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels);
@@ -487,7 +487,7 @@ function createConcentrationInput(rowY, concentration) {
   input.value = concentration;
   input.style.position = 'absolute';
   input.style.left = '55%';
-  input.style.top = `${rowOffsetTop}px`;
+  input.style.top = `${rowOffsetTop - 11}px`;
 
   // Append input
   originalImg.parentElement.append(input);
