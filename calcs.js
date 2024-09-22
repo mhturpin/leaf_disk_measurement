@@ -70,7 +70,7 @@ function loadImage() {
 
       // Create and append concentration inputs
       const defaultConcentrations = [8, 12, 14, 16];
-      rows.forEach((row, i) => createConcentrationInput(i, (row[0].top + row[0].bottom)/2, defaultConcentrations[i]));
+      rows.forEach((row, i) => createConcentrationInput(i, row[0].top, defaultConcentrations[i]));
 
       // Enable "Calculate" button
       const button = document.getElementById('calculate');
