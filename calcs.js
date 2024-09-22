@@ -54,9 +54,12 @@ function loadImage() {
       let leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk);
       ({leafDiskBlobs, pixels} = setNecroticPixels(leafDiskBlobs, pixels));
 
+      // Set necroticPortion for each blob
       leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
 
-      console.log(leafDiskBlobs);
+      // Group blobs into rows
+      const rows = groupBlobsByRow(leafDiskBlobs);
+      console.log(rows);
 
 
 
@@ -235,7 +238,7 @@ function markDarkPixel(blob, pixels, pixel) {
 
 // Consolidate blobs if they touch or overlap
 function consolidateBlobs(blobs) {
-  let consolidatedBlobsList = [];
+  const consolidatedBlobsList = [];
 
   for (const blob of blobs) {
     let blobMerged = false;
@@ -446,7 +449,27 @@ function linearRegression(data) {
   return {slope: m, yIntercept: b};
 }
 
+function groupBlobsByRow(blobs) {
+  const rows = [];
 
+  for (const blob of blobs) {
+    let blobRowAssigned = false;
+
+    rows.forEach((row) => {
+      if (!blobRowAssigned && rangesOverlap(row[0].top, row[0].bottom, blob.top, blob.bottom)) {
+        blobRowAssigned = true;
+        row.push(blob);
+      }
+    });
+
+    // Create a new row if it didn't match any existing ones
+    if (!blobRowAssigned) {
+      rows.push([blob]);
+    }
+  }
+
+  return rows;
+}
 
 
 
