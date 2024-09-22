@@ -90,7 +90,15 @@ window.onload = function() {
   //     "y": 3.4468815540268323
   //   }
   // ]
-  // plot(testData, 1.5, 5);
+
+  // xValues = testData.map((point) => point.x);
+  // yValues = testData.map((point) => point.y);
+  // xMin = Math.min(...xValues);
+  // xMax = Math.max(...xValues);
+  // yMin = Math.min(...yValues);
+  // yMax = Math.max(...yValues);
+
+  // plot(testData, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1);
 }
 
 function loadImage() {
@@ -573,27 +581,36 @@ function calculateSusceptibility(rows) {
     }
   });
 
-  plot(data, 1.5, 5);
+  xValues = data.map((point) => point.x);
+  yValues = data.map((point) => point.y);
+  xMin = Math.min(...xValues);
+  xMax = Math.max(...xValues);
+  yMin = Math.min(...yValues);
+  yMax = Math.max(...yValues);
+
+  plot(data, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1);
 
   return linearRegression(data);
 }
 
 
-function plot(data, xMax, yMax) {
-  drawAxes(xMax, yMax);
+function plot(data, xMin, xMax, yMin, yMax) {
+  drawAxes(xMin, xMax, yMin, yMax);
 
   for (const point of data) {
-    plotPoint(point, xMax, yMax);
+    plotPoint(point, xMin, xMax, yMin, yMax);
   }
 }
 
-function drawAxes(xMax, yMax) {
+function drawAxes(xMin, xMax, yMin, yMax) {
   const labelAreaSize = 30;
   const graph = document.getElementById('graph');
   const graphXPixels = graph.offsetWidth - labelAreaSize;
   const graphYPixels = graph.offsetHeight - labelAreaSize;
-  const xLabelInterval = parseFloat((xMax/5).toPrecision(2));
-  const yLabelInterval = parseFloat((yMax/5).toPrecision(2));
+  const xRange = xMax - xMin;
+  const yRange = yMax - yMin;
+  const xLabelInterval = parseFloat((xRange/5).toPrecision(2));
+  const yLabelInterval = parseFloat((yRange/5).toPrecision(2));
 
   const axes = document.createElement('div');
   axes.style.marginLeft = `${labelAreaSize}px`;
@@ -605,8 +622,8 @@ function drawAxes(xMax, yMax) {
   graph.append(axes);
 
   // x axis labels
-  for (let i = xLabelInterval; i <= xMax; i += xLabelInterval) {
-    const xPixels = graphXPixels*i/xMax;
+  for (let i = xMin; i <= xMax; i += xLabelInterval) {
+    const xPixels = graphXPixels*(i - xMin)/xRange;
 
     const tickMark = document.createElement('div');
     tickMark.style.height = '5px';
@@ -626,8 +643,8 @@ function drawAxes(xMax, yMax) {
   }
 
   // y axis labels
-  for (let i = yLabelInterval; i <= yMax; i += yLabelInterval) {
-    const yPixels = graphYPixels*i/yMax;
+  for (let i = yMin; i <= yMax; i += yLabelInterval) {
+    const yPixels = graphYPixels*(i - yMin)/yRange;
 
     const tickMark = document.createElement('div');
     tickMark.style.height = '0px';
@@ -647,13 +664,15 @@ function drawAxes(xMax, yMax) {
   }
 }
 
-function plotPoint(point, xMax, yMax) {
+function plotPoint(point, xMin, xMax, yMin, yMax) {
   const labelAreaSize = 30;
   const graph = document.getElementById('graph');
   const graphXPixels = graph.offsetWidth - labelAreaSize;
   const graphYPixels = graph.offsetHeight - labelAreaSize;
-  const xPixels = graphXPixels*point.x/xMax;
-  const yPixels = graphYPixels*point.y/yMax;
+  const xRange = xMax - xMin;
+  const yRange = yMax - yMin;
+  const xPixels = graphXPixels*(point.x - xMin)/xRange;
+  const yPixels = graphYPixels*(point.y - yMin)/yRange;
 
   const div = document.createElement('div');
   div.style.position = 'absolute';
