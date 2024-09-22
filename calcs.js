@@ -57,14 +57,16 @@ function loadImage() {
       // Set necroticPortion for each blob
       leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
 
-      // Group blobs into rows
-      const rows = groupBlobsByRow(leafDiskBlobs);
-      console.log(rows);
+      // Group blobs into rows and sort
+      const rows = groupBlobsByRow(leafDiskBlobs).sort((a, b) => a[0].top - b[0].top);
+
+      // Create and append concentration inputs
+      const defaultConcentrations = [8, 12, 14, 16];
+
+      rows.forEach((row, i) => createConcentrationInput(row[0].top, defaultConcentrations[i]));
 
 
-
-
-      document.querySelector('img#highlighted').src = pixelsToBase64(pixels);
+      document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels);
     });
   });
 }
@@ -471,6 +473,28 @@ function groupBlobsByRow(blobs) {
   return rows;
 }
 
+// Create inputs for the oxalic acid concentrations of each row
+function createConcentrationInput(rowY, concentration) {
+  const originalImg = document.getElementById('originalImage');
+
+  // Use the ratio of the displayed image to the original height to calculate the offset needed for the input
+  const ratioY = originalImg.offsetHeight/originalImg.naturalHeight;
+  const rowOffsetTop = ratioY*rowY + originalImg.offsetTop;
+
+  // Create input
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.value = concentration;
+  input.style.position = 'absolute';
+  input.style.left = '55%';
+  input.style.top = `${rowOffsetTop}px`;
+
+  // Append input
+  originalImg.parentElement.append(input);
+}
+
+
+
 
 
 
@@ -498,7 +522,7 @@ function a() {
     getFileAsImageData(document.querySelector('input#imageUpload').files[0], (imageData) => {
       const clickedColor = getAverageColor(imageData, x, y, 2);
       const base64 = imageDataToBase64(highlightCloseColors(imageData, clickedColor));
-      document.querySelector('img#highlighted').src = base64;
+      document.querySelector('img#highlightedImage').src = base64;
     });
   };
 
