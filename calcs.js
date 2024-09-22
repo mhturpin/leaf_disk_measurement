@@ -76,7 +76,10 @@ function loadImage() {
       const button = document.getElementById('calculate');
       button.onclick = () => {
         const regression = calculateSusceptibility(rows);
-        console.log(regression);
+
+        document.getElementById('slope').textContent = regression.slope;
+        document.getElementById('yIntercept').textContent = regression.yIntercept;
+        document.getElementById('rSquared').textContent = regression.rSquared;
       };
 
       document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels);
@@ -515,11 +518,11 @@ function createConcentrationInput(rowI, rowY, concentration) {
   input.row = rowI;
   input.value = concentration;
   input.style.position = 'absolute';
-  input.style.left = '55%';
-  input.style.top = `${rowOffsetTop - 11}px`;
+  input.style.left = '10px';
+  input.style.top = `${rowOffsetTop}px`;
 
   // Append input
-  originalImg.parentElement.append(input);
+  document.getElementById('concentrationInputs').append(input);
 }
 
 // Calculate the susceptibility linear regression
