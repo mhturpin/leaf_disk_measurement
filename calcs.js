@@ -529,10 +529,8 @@ function calculateSusceptibility(rows) {
 
   concentrationInputs.forEach((input) => {
     const row = rows[input.row];
-
-    for (const blob of row) {
-      data.push({x: Math.log10(input.value), y: blob.necroticRate});
-    }
+    const necroticRateAvg = row.reduce((total, blob) => total + blob.necroticRate, 0)/row.length;
+    data[input.row] = {x: Math.log10(input.value), y: necroticRateAvg};
   });
 
   xValues = data.map((point) => point.x);
