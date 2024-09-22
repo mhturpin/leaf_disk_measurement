@@ -37,68 +37,6 @@
 
 window.onload = function() {
   document.querySelector('input#imageUpload').onchange = loadImage;
-
-
-  // let testData = [{x: 1, y: 2}, {x: 2, y: 3}, {x: 3, y: 4}, {x: 4, y: 5}, {x: 5, y: 6}, {x: 6, y: 7}];
-  // testData = [
-  //   {
-  //     "x": 0.9030899869919435,
-  //     "y": 1.7478481824043315
-  //   },
-  //   {
-  //     "x": 0.9030899869919435,
-  //     "y": 2.0039236671596856
-  //   },
-  //   {
-  //     "x": 0.9030899869919435,
-  //     "y": 1.8958181385042392
-  //   },
-  //   {
-  //     "x": 1.0791812460476249,
-  //     "y": 2.2097789879957004
-  //   },
-  //   {
-  //     "x": 1.0791812460476249,
-  //     "y": 2.57429612321956
-  //   },
-  //   {
-  //     "x": 1.0791812460476249,
-  //     "y": 2.4353227623256215
-  //   },
-  //   {
-  //     "x": 1.146128035678238,
-  //     "y": 3.1559537057309166
-  //   },
-  //   {
-  //     "x": 1.146128035678238,
-  //     "y": 2.852107755397966
-  //   },
-  //   {
-  //     "x": 1.146128035678238,
-  //     "y": 2.306449980696127
-  //   },
-  //   {
-  //     "x": 1.2041199826559248,
-  //     "y": 2.6515433546366576
-  //   },
-  //   {
-  //     "x": 1.2041199826559248,
-  //     "y": 2.6452592826575816
-  //   },
-  //   {
-  //     "x": 1.2041199826559248,
-  //     "y": 3.4468815540268323
-  //   }
-  // ]
-
-  // xValues = testData.map((point) => point.x);
-  // yValues = testData.map((point) => point.y);
-  // xMin = Math.min(...xValues);
-  // xMax = Math.max(...xValues);
-  // yMin = Math.min(...yValues);
-  // yMax = Math.max(...yValues);
-
-  // plot(testData, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1);
 }
 
 function loadImage() {
@@ -520,8 +458,24 @@ function linearRegression(data) {
 
   const m = num / denom
   const b = ymean - (m * xmean);
+  const coefficients = {slope: m, yIntercept: b};
 
-  return {slope: m, yIntercept: b};
+  return {...coefficients, rSquared: rSquared(data, coefficients)};
+}
+
+// https://stackoverflow.com/questions/65987106/how-do-i-calculate-r-squared-value-in-javascript
+function rSquared(data, coefficients) {
+  const yPrediction = (x) =>  + coefficients.slope*x + coefficients.yIntercept;
+  let yMean = data.reduce((total, point) => total + point.y, 0)/data.length;
+  let regressionSquaredError = 0;
+  let totalSquaredError = 0;
+
+  for (let i = 0; i < data.length; i++) {
+    regressionSquaredError += (data[i].y - yPrediction(data[i].x))**2;
+    totalSquaredError += (data[i].y - yMean)**2;
+  }
+
+  return 1 - (regressionSquaredError/totalSquaredError);
 }
 
 function groupBlobsByRow(blobs) {
