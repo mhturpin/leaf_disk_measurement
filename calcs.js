@@ -2,7 +2,7 @@
   Process:
   1. Upload image
   2. Create pixel 2D array
-  3. Label pixels isDark (maybe >50% r and g, >25% b)
+  3. Label pixels isDark (all colors < 150)
     a. Create blobs
       * top
       * left
@@ -10,20 +10,15 @@
       * bottom
   4. Label blobs isLeafDisk
     * height ~= width
-    * Number of pixels ~= pi*(height/2)^2
-  5. Find the average healthy and necrotic leaf color
-    a. Make a list of all dark pixels in all blobs
-    b. Divide into light (necrotic) and dark (healthy)
-    c. Take an average of necrotic and healthy colors
-  6. Label pixels in leaf disk blobs
-    * isLeaf: All pixels in necrotic-healthy range +/- some %
-    * isNecrotic: necrotic color +/- some %
-      * Ignore/remove veins?
-      * Ignore/remove isolated interior necrotic areas
+    * Number of pixels ~= number of pixels in a circle
+  5. Find the transition point between healthy and necrotic leaf color
+    a. Make a list of all dark pixels
+    b. Do derivatives to isolate the transition point
+  6. Label necrotic pixels in leaf disk blobs (all pixels brighter than the transition point)
+    * Ignore/remove veins and isolated interior necrotic areas?
   7. Display highlighted/labeled image
-    * Maybe have slider on image to show before/after for visual confirmation
-  8. Sort leaf disk blobs into rows
-    * top and bottom +/- some % of each other
+    * Have a slider on the image to show before/after for visual confirmation?
+  8. Sort leaf disk blobs into rows (all leaf blobs that overlap vertically are one row)
   9. Create an oxalic acid concentration (mM) input for each row
   10. Fill in concentrations
   11. Click "Process"
@@ -59,13 +54,11 @@ function loadImage() {
       let leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk);
       ({leafDiskBlobs, pixels} = setNecroticPixels(leafDiskBlobs, pixels));
 
+      leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
+
+      console.log(leafDiskBlobs);
 
 
-      // Count all pixels with range of health-dead (maybe not necessary)
-      // Count dead pixels
-      // Percentage of dead/total pixels
-      // 214 Darkest light
-      // 204 Lightest dark
 
 
       document.querySelector('img#highlighted').src = pixelsToBase64(pixels);
@@ -137,10 +130,15 @@ function pixelsToBase64(pixels) {
       imageData.data[pixelNum*4 + 2] = pixels[row][col].b;
       imageData.data[pixelNum*4 + 3] = 255; // Alpha
 
-      if (pixels[row][col].isDark) {
+      if (pixels[row][col].isNecrotic) {
         imageData.data[pixelNum*4] = 255;
-        imageData.data[pixelNum*4 + 1] = 0;
-        imageData.data[pixelNum*4 + 2] = 255;
+        imageData.data[pixelNum*4 + 1] = 100;
+        imageData.data[pixelNum*4 + 2] = 0;
+        imageData.data[pixelNum*4 + 3] = 255; // Alpha
+      } else if (pixels[row][col].isDark) {
+        imageData.data[pixelNum*4] = 0;
+        imageData.data[pixelNum*4 + 1] = 200;
+        imageData.data[pixelNum*4 + 2] = 0;
         imageData.data[pixelNum*4 + 3] = 255; // Alpha
       }
     }
@@ -339,12 +337,15 @@ function setNecroticPixels(leafDiskBlobs, pixels) {
     // Index at the center of the transition between the healthy and necrotic color plateaus
     const transitionI = findTransitionIndex(colorSums.map((colorSum) => colorSum.sum));
 
-    console.log(`transitionI: ${transitionI}, sum: ${colorSums[transitionI].sum}`);
-    // Set list of coordinates of necrotic
+
+    blob.necroticCoordinates = colorSums.slice(transitionI).map((colorSum) => colorSum.coordinate);
+
+    for (const coordinate of blob.necroticCoordinates) {
+      pixels[coordinate.y][coordinate.x].isNecrotic = true;
+    }
   });
 
-
-  return leafDiskBlobs;
+  return {leafDiskBlobs: leafDiskBlobs, pixels: pixels};
 }
 
 // Sum up the rgb values of the pixel to be used as a brightness value
