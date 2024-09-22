@@ -386,10 +386,10 @@ function slope(x1, y1, x2, y2) {
 function findTransitionIndex(data) {
   // Average over 10% to smooth out data
   // Spike in slopes corresponds to the transition (slope increases then decreases)
-  const slopes = smoothedDerivative(data, 0.05);
+  const slopes = smoothedDerivative(data, 0.05, data.length/500);
   const peakI = findPeak(slopes);
 
-  return Math.round(scaleArrayIndex(peakI, data.length, 0.05));
+  return Math.round(scaleArrayIndex(peakI, data.length, 0.05, data.length/500));
 }
 
 // Find the peak of the data (spike in the middle of the graph, not the maximum value)
@@ -410,19 +410,19 @@ function findPeak(data) {
 }
 
 // Scale an index from the smoothedDerivative array to the corresponding index in the original array
-function scaleArrayIndex(i, originalLength, smoothingFactor) {
+function scaleArrayIndex(i, originalLength, smoothingFactor, step=1) {
   const chunkSize = chunkLength(originalLength, smoothingFactor);
 
-  return i + (chunkSize - 1)/2;
+  return i*step + (chunkSize - 1)/2;
 }
 
 // Calculate the derivative using chunks of `smoothingFactor` to smooth it out
-function smoothedDerivative(data, smoothingFactor) {
+function smoothedDerivative(data, smoothingFactor, step=1) {
   const slopes = [];
   const chunkSize = chunkLength(data.length, smoothingFactor);
   const end = data.length*(1 - smoothingFactor);
 
-  for (let i = 0; i <= end; i++) {
+  for (let i = 0; i <= end; i += step) {
     const chunk = data.slice(i, i + chunkSize);
     slopes.push(linearRegression(chunk.map((num, i) => ({x: i, y: num}))).slope);
   }
