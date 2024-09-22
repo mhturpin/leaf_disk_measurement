@@ -28,10 +28,69 @@
       * 197.93mm^2 = area of leaf disk
     c. Calculate linear regression of necrotic rate (y) versus log(concentration) (x)
   13. Display results
+
+  Future:
+  * Add R^2 value for linear regression
+  * Speed up processing time
+  * Show graph of concentration/necrotic
 */
 
 window.onload = function() {
   document.querySelector('input#imageUpload').onchange = loadImage;
+
+
+  // let testData = [{x: 1, y: 2}, {x: 2, y: 3}, {x: 3, y: 4}, {x: 4, y: 5}, {x: 5, y: 6}, {x: 6, y: 7}];
+  // testData = [
+  //   {
+  //     "x": 0.9030899869919435,
+  //     "y": 1.7478481824043315
+  //   },
+  //   {
+  //     "x": 0.9030899869919435,
+  //     "y": 2.0039236671596856
+  //   },
+  //   {
+  //     "x": 0.9030899869919435,
+  //     "y": 1.8958181385042392
+  //   },
+  //   {
+  //     "x": 1.0791812460476249,
+  //     "y": 2.2097789879957004
+  //   },
+  //   {
+  //     "x": 1.0791812460476249,
+  //     "y": 2.57429612321956
+  //   },
+  //   {
+  //     "x": 1.0791812460476249,
+  //     "y": 2.4353227623256215
+  //   },
+  //   {
+  //     "x": 1.146128035678238,
+  //     "y": 3.1559537057309166
+  //   },
+  //   {
+  //     "x": 1.146128035678238,
+  //     "y": 2.852107755397966
+  //   },
+  //   {
+  //     "x": 1.146128035678238,
+  //     "y": 2.306449980696127
+  //   },
+  //   {
+  //     "x": 1.2041199826559248,
+  //     "y": 2.6515433546366576
+  //   },
+  //   {
+  //     "x": 1.2041199826559248,
+  //     "y": 2.6452592826575816
+  //   },
+  //   {
+  //     "x": 1.2041199826559248,
+  //     "y": 3.4468815540268323
+  //   }
+  // ]
+  // plot(testData, 1.5, 5);
 }
 
 function loadImage() {
@@ -342,14 +401,12 @@ function isWithinTolerance(correctNum, num, tolerance) {
 // Sort pixels into healthy (dark) and dead (light)
 function setNecroticPixels(leafDiskBlobs, pixels) {
   leafDiskBlobs.forEach((blob) => {
-
     // Create an array of the sums and their corresponding coordinates
     const colorSums = blob.pixelCoordinates.map((coordinate) => colorSum(coordinate, pixels));
     colorSums.sort((a, b) => a.sum - b.sum);
 
     // Index at the center of the transition between the healthy and necrotic color plateaus
     const transitionI = findTransitionIndex(colorSums.map((colorSum) => colorSum.sum));
-
 
     blob.necroticCoordinates = colorSums.slice(transitionI).map((colorSum) => colorSum.coordinate);
 
@@ -516,154 +573,93 @@ function calculateSusceptibility(rows) {
     }
   });
 
+  plot(data, 1.5, 5);
+
   return linearRegression(data);
 }
 
 
+function plot(data, xMax, yMax) {
+  drawAxes(xMax, yMax);
 
-
-
-
-
-// =============================================================================
-// =============================================================================
-// =============================================================================
-// =============================================================================
-// =============================================================================
-// =============================================================================
-// Old
-
-var dragStart;
-
-// window.onload =
-function a() {
-  let originalImage = document.querySelector('div#originalImage img');
-  document.querySelector('input#imageUpload').onchange = displayImage;
-
-  document.querySelector('div#originalImage img').onclick = function(e) {
-    const {x, y} = getPixelCoordinates(e);
-
-    getFileAsImageData(document.querySelector('input#imageUpload').files[0], (imageData) => {
-      const clickedColor = getAverageColor(imageData, x, y, 2);
-      const base64 = imageDataToBase64(highlightCloseColors(imageData, clickedColor));
-      document.querySelector('img#highlightedImage').src = base64;
-    });
-  };
-
-
-  originalImage.addEventListener('mousedown', (e) => {
-    event.preventDefault();
-
-    dragStart = {x: e.x, y: e.y};
-
-    const dragBorder = document.createElement('div');
-    dragBorder.id = 'dragBorder'
-    dragBorder.style.position = 'fixed';
-    dragBorder.style.left = `${dragStart.x}px`;
-    dragBorder.style.top = `${dragStart.y}px`;
-    dragBorder.style.border = '1px solid';
-    originalImage.parentElement.append(dragBorder);
-  });
-
-  originalImage.addEventListener('mousemove', (e) => {
-    event.preventDefault();
-
-    if (dragStart) {
-      const dragBorder = document.querySelector('div#dragBorder');
-      dragBorder.style.width = `${e.x - dragStart.x}px`;
-      dragBorder.style.height = `${e.y - dragStart.y}px`;
-    }
-  });
-
-  originalImage.addEventListener('mouseup', (e) => {
-    event.preventDefault();
-
-    document.querySelector('div#dragBorder').remove();
-    dragStart = undefined;
-  });
+  for (const point of data) {
+    plotPoint(point, xMax, yMax);
+  }
 }
 
-// Get the coordinates of the clicked pixel
-function getPixelCoordinates(e) {
-  var ratioX = e.target.naturalWidth / e.target.offsetWidth;
-  var ratioY = e.target.naturalHeight / e.target.offsetHeight;
+function drawAxes(xMax, yMax) {
+  const labelAreaSize = 30;
+  const graph = document.getElementById('graph');
+  const graphXPixels = graph.offsetWidth - labelAreaSize;
+  const graphYPixels = graph.offsetHeight - labelAreaSize;
+  const xLabelInterval = parseFloat((xMax/5).toPrecision(2));
+  const yLabelInterval = parseFloat((yMax/5).toPrecision(2));
 
-  var domX = e.x + window.pageXOffset - e.target.offsetLeft;
-  var domY = e.y + window.pageYOffset - e.target.offsetTop;
+  const axes = document.createElement('div');
+  axes.style.marginLeft = `${labelAreaSize}px`;
+  axes.style.marginBottom = `${labelAreaSize}px`;
+  axes.style.height = `calc(100% - ${labelAreaSize}px)`;
+  axes.style.width = `calc(100% - ${labelAreaSize}px)`;
+  axes.style.borderLeft = '2px solid';
+  axes.style.borderBottom = '2px solid';
+  graph.append(axes);
 
-  var imgX = Math.floor(domX * ratioX);
-  var imgY = Math.floor(domY * ratioY);
+  // x axis labels
+  for (let i = xLabelInterval; i <= xMax; i += xLabelInterval) {
+    const xPixels = graphXPixels*i/xMax;
 
-  return {x: imgX, y: imgY};
-}
+    const tickMark = document.createElement('div');
+    tickMark.style.height = '5px';
+    tickMark.style.width = '0px';
+    tickMark.style.position = 'absolute';
+    tickMark.style.left = `calc(${xPixels}px + ${labelAreaSize}px)`;
+    tickMark.style.bottom = `${labelAreaSize - 8}px`;
+    tickMark.style.border = '1px solid';
+    graph.append(tickMark);
 
-
-// Get the average color of the square with the side length of `2*spread+1` and centered on x, y
-function getAverageColor(imageData, x, y, spread) {
-  let rTotal = 0;
-  let gTotal = 0;
-  let bTotal = 0;
-  let color;
-  const numPixels = (2*spread + 1) ** 2;
-
-  for (let i = x - spread; i <= x + spread; i++) {
-    for (let col = y - spread; col <= y + spread; col++) {
-      color = getPixelValues(imageData, i, col);
-      rTotal += color.r;
-      gTotal += color.g;
-      bTotal += color.b;
-    }
+    const label = document.createElement('div');
+    label.textContent = i.toPrecision(2);
+    label.style.position = 'absolute';
+    label.style.left = `calc(${xPixels}px + 21px)`;
+    label.style.bottom = `0px`;
+    graph.append(label);
   }
 
-  return {r: Math.round(rTotal/numPixels), g: Math.round(gTotal/numPixels), b: Math.round(bTotal/numPixels)};
-}
+  // y axis labels
+  for (let i = yLabelInterval; i <= yMax; i += yLabelInterval) {
+    const yPixels = graphYPixels*i/yMax;
 
+    const tickMark = document.createElement('div');
+    tickMark.style.height = '0px';
+    tickMark.style.width = '5px';
+    tickMark.style.position = 'absolute';
+    tickMark.style.left = `${labelAreaSize - 7}px`;
+    tickMark.style.bottom = `calc(${yPixels}px + ${labelAreaSize}px)`;
+    tickMark.style.border = '1px solid';
+    graph.append(tickMark);
 
-function highlightCloseColors(imageData, color) {
-  const numPixels = imageData.width * imageData.height;
-
-  // For each pixel
-  for (let i = 0; i < imageData.width; i++) {
-    for (let j = 0; j < imageData.height; j++) {
-      if (isCloseColor(color, getPixelValues(imageData, i, j))) {
-        pixelIndex = imageData.width * j + i;
-        imageData.data[pixelIndex * 4] = 255;
-        imageData.data[pixelIndex * 4 + 1] = 0;
-        imageData.data[pixelIndex * 4 + 2] = 255;
-      }
-    }
+    const label = document.createElement('div');
+    label.textContent = i.toPrecision(2);
+    label.style.position = 'absolute';
+    label.style.left = `0px`;
+    label.style.bottom = `calc(${yPixels}px + 21px)`;
+    graph.append(label);
   }
-
-  return imageData;
 }
 
-// Return the rgb values of the pixel in imageData at x, y
-function getPixelValues(imageData, x, y) {
-  // Calculate index of the pixel within the flattened array
-  const i = imageData.width * y + x;
+function plotPoint(point, xMax, yMax) {
+  const labelAreaSize = 30;
+  const graph = document.getElementById('graph');
+  const graphXPixels = graph.offsetWidth - labelAreaSize;
+  const graphYPixels = graph.offsetHeight - labelAreaSize;
+  const xPixels = graphXPixels*point.x/xMax;
+  const yPixels = graphYPixels*point.y/yMax;
 
-  // 4 channels in the imageData: r, g, b, a
-  return {r: imageData.data[i * 4], g: imageData.data[i * 4 + 1], b: imageData.data[i * 4 + 2]};
-}
+  const div = document.createElement('div');
+  div.style.position = 'absolute';
+  div.style.left = `calc(${xPixels}px + ${labelAreaSize}px)`;
+  div.style.bottom = `calc(${yPixels}px + ${labelAreaSize}px)`;
+  div.style.border = '4px solid';
 
-function isCloseColor(color1, color2) {
-  const rClose = Math.abs(color1.r - color2.r) < 30;
-  const gClose = Math.abs(color1.g - color2.g) < 30;
-  const bClose = Math.abs(color1.b - color2.b) < 30;
-
-  return rClose && gClose && bClose;
-}
-
-
-
-
-// Convert imageData to base64 encoded image
-function imageDataToBase64(imageData) {
-  const canvas = document.createElement('canvas');
-  canvas.height = imageData.height;
-  canvas.width = imageData.width;
-  const ctx = canvas.getContext('2d');
-  ctx.putImageData(imageData, 0, 0);
-
-  return canvas.toDataURL();
+  graph.append(div);
 }
