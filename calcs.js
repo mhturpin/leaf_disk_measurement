@@ -51,13 +51,13 @@ function loadImage() {
 
       // Label each blob if it is a leaf disk or not
       blobs.forEach((blob) => blob.isLeafDisk = isBlobCircular(blob));
+      let leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk).sort((a, b) => a.left - b.left);
 
-      // Create borders to show user
-      pixels = drawBlobBorders(blobs, pixels);
+      // Group blobs into rows and sort
+      let rows = groupBlobsByRow(leafDiskBlobs).sort((a, b) => a[0].top - b[0].top);
 
-      // Find the average healthy and dead color
-      let leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk);
-      ({leafDiskBlobs, pixels} = setNecroticPixels(leafDiskBlobs, pixels));
+      // Classify which pixels are necrotic
+      ({rows, pixels} = setNecroticPixels(rows, pixels));
 
       // Set necroticPortion and necroticRate for each blob
       leafDiskBlobs.forEach((blob) => {
@@ -65,24 +65,21 @@ function loadImage() {
         blob.necroticRate = blob.necroticPortion*197.93/23;
       });
 
-      // Group blobs into rows and sort
-      const rows = groupBlobsByRow(leafDiskBlobs).sort((a, b) => a[0].top - b[0].top);
-
       // Create and append concentration inputs
       const defaultConcentrations = [8, 12, 14, 16];
       rows.forEach((row, i) => createConcentrationInput(i, row[0].top, defaultConcentrations[i]));
 
-      // Enable "Calculate" button
-      const button = document.getElementById('calculate');
-      button.onclick = () => {
-        const regression = calculateSusceptibility(rows);
+      // Create borders to show user
+      pixels = drawBlobBorders(leafDiskBlobs, pixels);
 
-        document.getElementById('slope').textContent = regression.slope;
-        document.getElementById('yIntercept').textContent = regression.yIntercept;
-        document.getElementById('rSquared').textContent = regression.rSquared;
-      };
+      // Do linear regression and display it on screen
+      doCalculations(rows);
 
       document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels);
+
+      // Enable "Recalculate" button
+      const button = document.getElementById('calculate');
+      button.onclick = () => doCalculations(rows);
     });
   });
 }
@@ -348,23 +345,30 @@ function isWithinTolerance(correctNum, num, tolerance) {
 }
 
 // Sort pixels into healthy (dark) and dead (light)
-function setNecroticPixels(leafDiskBlobs, pixels) {
-  leafDiskBlobs.forEach((blob) => {
-    // Create an array of the sums and their corresponding coordinates
-    const colorSums = blob.pixelCoordinates.map((coordinate) => colorSum(coordinate, pixels));
-    colorSums.sort((a, b) => a.sum - b.sum);
+function setNecroticPixels(rows, pixels) {
+  for (let rowI = 0; rowI < rows.length; rowI++) {
+    for (let blobI = 0; blobI < rows[rowI].length; blobI++) {
+      const blob = rows[rowI][blobI];
 
-    // Index at the center of the transition between the healthy and necrotic color plateaus
-    const transitionI = findTransitionIndex(colorSums.map((colorSum) => colorSum.sum));
+      // Create an array of the sums and their corresponding coordinates
+      const colorSums = blob.pixelCoordinates.map((coordinate) => colorSum(coordinate, pixels));
+      colorSums.sort((a, b) => a.sum - b.sum);
 
-    blob.necroticCoordinates = colorSums.slice(transitionI).map((colorSum) => colorSum.coordinate);
+      // Index at the center of the transition between the healthy and necrotic color plateaus
+      const transitionI = findTransitionIndex(colorSums.map((colorSum) => colorSum.sum));
 
-    for (const coordinate of blob.necroticCoordinates) {
-      pixels[coordinate.y][coordinate.x].isNecrotic = true;
+      blob.necroticCoordinates = colorSums.slice(transitionI).map((colorSum) => colorSum.coordinate);
+
+      for (const coordinate of blob.necroticCoordinates) {
+        pixels[coordinate.y][coordinate.x].isNecrotic = true;
+      }
+
+      // Plot color sums for visual confirmation
+      plotColorSums(colorSums, transitionI, rowI, blobI);
     }
-  });
+  }
 
-  return {leafDiskBlobs: leafDiskBlobs, pixels: pixels};
+  return {rows: rows, pixels: pixels};
 }
 
 // Sum up the rgb values of the pixel to be used as a brightness value
@@ -525,6 +529,15 @@ function createConcentrationInput(rowI, rowY, concentration) {
   document.getElementById('concentrationInputs').append(input);
 }
 
+// Do the calculations and display the results on screen
+function doCalculations(rows) {
+  const regression = calculateSusceptibility(rows);
+
+  document.getElementById('slope').textContent = regression.slope;
+  document.getElementById('yIntercept').textContent = regression.yIntercept;
+  document.getElementById('rSquared').textContent = regression.rSquared;
+}
+
 // Calculate the susceptibility linear regression
 function calculateSusceptibility(rows) {
   const concentrationInputs = document.querySelectorAll('input.concentration');
@@ -543,23 +556,68 @@ function calculateSusceptibility(rows) {
   yMin = Math.min(...yValues);
   yMax = Math.max(...yValues);
 
-  plot(data, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1);
+  plot(document.getElementById('susceptibilityGraph'), data, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1, true);
 
   return linearRegression(data);
 }
 
+function plotColorSums(colorSums, transitionI, row, col) {
+  // Limit to about 500 elements and map to x, y coordinates
+  const step = Math.round(colorSums.length/500);
+  const data = colorSums.filter((sum, i) => i%step == 0).map((sum, i) => ({x: i, y: sum.sum}));
 
-function plot(data, xMin, xMax, yMin, yMax) {
-  drawAxes(xMin, xMax, yMin, yMax);
+  // Create the graph element
+  const graph = document.createElement('div');
+  graph.style.position = 'relative';
+  graph.style.display = 'inline-block';
+  graph.style.height = '200px';
+  graph.style.width = `calc(33% - 40px)`;
+  graph.style.margin = '20px';
+
+  // Add a line to show the transition cutoff
+  const labelAreaSize = 30;
+  const graphYPixels = 200 - labelAreaSize;
+  const yPixels = graphYPixels*colorSums[transitionI].sum/475;
+
+  const line = document.createElement('div');
+  line.style.position = 'absolute';
+  line.style.left = `${labelAreaSize}px`;
+  line.style.bottom = `calc(${yPixels}px + ${labelAreaSize}px)`;
+  line.style.width = `calc(100% - ${labelAreaSize}px)`;
+  line.style.border = '1px solid';
+  graph.append(line);
+
+  // Label which leaf disk it is
+  const label = document.createElement('span');
+  label.textContent = `row: ${row + 1}, col: ${col + 1}`;
+  label.style.position = 'absolute';
+  label.style.top = 0;
+  label.style.left = `${labelAreaSize + 20}px`;
+  graph.append(label);
+
+  // Append before plotting the element knows what size it is
+  document.getElementById('brightnessGraphs').append(graph)
+
+  plot(graph, data, 0, 550, 0, 475);
+
+}
+
+// Plot the data in the provided div
+function plot(graph, data, xMin, xMax, yMin, yMax, clearChildren=false) {
+  if (clearChildren) {
+    // Delete all the graph's children
+    graph.innerHTML = '';
+  }
+
+  drawAxes(graph, xMin, xMax, yMin, yMax);
 
   for (const point of data) {
-    plotPoint(point, xMin, xMax, yMin, yMax);
+    plotPoint(graph, point, xMin, xMax, yMin, yMax);
   }
 }
 
-function drawAxes(xMin, xMax, yMin, yMax) {
+function drawAxes(graph, xMin, xMax, yMin, yMax) {
   const labelAreaSize = 30;
-  const graph = document.getElementById('graph');
   const graphXPixels = graph.offsetWidth - labelAreaSize;
   const graphYPixels = graph.offsetHeight - labelAreaSize;
   const xRange = xMax - xMin;
@@ -590,7 +648,8 @@ function drawAxes(xMin, xMax, yMin, yMax) {
     graph.append(tickMark);
 
     const label = document.createElement('div');
-    label.textContent = i.toPrecision(2);
+    // Round to 2 significant figures and convert to float to avoid scientific notation
+    label.textContent = parseFloat(i.toPrecision(2));
     label.style.position = 'absolute';
     label.style.left = `calc(${xPixels}px + 21px)`;
     label.style.bottom = `0px`;
@@ -611,7 +670,7 @@ function drawAxes(xMin, xMax, yMin, yMax) {
     graph.append(tickMark);
 
     const label = document.createElement('div');
-    label.textContent = i.toPrecision(2);
+    label.textContent = parseFloat(i.toPrecision(2));
     label.style.position = 'absolute';
     label.style.left = `0px`;
     label.style.bottom = `calc(${yPixels}px + 21px)`;
@@ -619,9 +678,8 @@ function drawAxes(xMin, xMax, yMin, yMax) {
   }
 }
 
-function plotPoint(point, xMin, xMax, yMin, yMax) {
+function plotPoint(graph, point, xMin, xMax, yMin, yMax) {
   const labelAreaSize = 30;
-  const graph = document.getElementById('graph');
   const graphXPixels = graph.offsetWidth - labelAreaSize;
   const graphYPixels = graph.offsetHeight - labelAreaSize;
   const xRange = xMax - xMin;
@@ -633,7 +691,7 @@ function plotPoint(point, xMin, xMax, yMin, yMax) {
   div.style.position = 'absolute';
   div.style.left = `calc(${xPixels}px + ${labelAreaSize}px)`;
   div.style.bottom = `calc(${yPixels}px + ${labelAreaSize}px)`;
-  div.style.border = '4px solid';
+  div.style.border = '3px solid';
 
   graph.append(div);
 }
