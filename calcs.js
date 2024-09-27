@@ -363,8 +363,10 @@ function setNecroticPixels(rows, pixels) {
         pixels[coordinate.y][coordinate.x].isNecrotic = true;
       }
 
-      // Plot color sums for visual confirmation
-      plotColorSums(colorSums, transitionI, rowI, blobI);
+      if (document.getElementById('showBrightnessGraphs').checked) {
+        // Plot color sums for visual confirmation
+        plotColorSums(colorSums, transitionI, rowI, blobI);
+      }
     }
   }
 
@@ -570,13 +572,13 @@ function plotColorSums(colorSums, transitionI, row, col) {
   const graph = document.createElement('div');
   graph.style.position = 'relative';
   graph.style.display = 'inline-block';
-  graph.style.height = '200px';
+  graph.style.height = '300px';
   graph.style.width = `calc(33% - 40px)`;
   graph.style.margin = '20px';
 
   // Add a line to show the transition cutoff
   const labelAreaSize = 30;
-  const graphYPixels = 200 - labelAreaSize;
+  const graphYPixels = 300 - labelAreaSize;
   const yPixels = graphYPixels*colorSums[transitionI].sum/475;
 
   const line = document.createElement('div');

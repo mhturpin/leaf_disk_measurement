@@ -5,12 +5,19 @@
     <script src="calcs.js"></script>
   </head>
   <body>
-    <h1>Upload an Image</h1>
-    <form>
+    <h1>Process Leaf Disk Image</h1>
+    <div>
       <label for="imageUpload">Choose an image:</label>
-      <input type="file" id="imageUpload" name="imageUpload" accept="image/*" required>
-    </form>
-    <button id="calculate">Recalculate</button>
+      <input type="file" id="imageUpload" name="imageUpload" accept="image/*">
+    </div>
+    <div>
+      <input type="checkbox" id="showBrightnessGraphs" name="showBrightnessGraphs">
+      <label for="showBrightnessGraphs">Show brightness graphs</label>
+    </div>
+    <div>
+      <button id="calculate">Recalculate</button>
+    </div>
+
     <div style="position: relative">
       <div style="display: inline-block; width: 35%; vertical-align: top">
         <h2>Original</h2>
