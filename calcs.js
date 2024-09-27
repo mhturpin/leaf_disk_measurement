@@ -60,10 +60,7 @@ function loadImage() {
       ({rows, pixels} = setNecroticPixels(rows, pixels));
 
       // Set necroticPortion and necroticRate for each blob
-      leafDiskBlobs.forEach((blob) => {
-        blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length;
-        blob.necroticRate = blob.necroticPortion*197.93/23;
-      });
+      leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
 
       // Create and append concentration inputs
       const defaultConcentrations = [8, 12, 14, 16];
@@ -544,6 +541,16 @@ function doCalculations(rows) {
 function calculateSusceptibility(rows) {
   const concentrationInputs = document.querySelectorAll('input.concentration');
   const data = [];
+
+  const radius = parseFloat(document.getElementById('diskDiameter').value)/2;
+  const area = Math.PI*(radius**2);
+  const hours = parseFloat(document.getElementById('hoursSoaked').value);
+
+  for (let rowI = 0; rowI < rows.length; rowI++) {
+    for (let blobI = 0; blobI < rows[rowI].length; blobI++) {
+      rows[rowI][blobI].necroticRate = rows[rowI][blobI].necroticPortion*area/hours;
+    }
+  }
 
   concentrationInputs.forEach((input) => {
     const row = rows[input.row];
