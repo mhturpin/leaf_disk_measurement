@@ -571,8 +571,8 @@ function calculateSusceptibility(rows) {
 }
 
 function plotColorSums(colorSums, transitionI, row, col) {
-  // Limit to about 500 elements and map to x, y coordinates
-  const step = Math.round(colorSums.length/500);
+  // Limit to about 100 elements and map to x, y coordinates
+  const step = Math.round(colorSums.length/100);
   const data = colorSums.filter((sum, i) => i%step == 0).map((sum, i) => ({x: i, y: sum.sum}));
 
   // Create the graph element
@@ -607,8 +607,7 @@ function plotColorSums(colorSums, transitionI, row, col) {
   // Append before plotting the element knows what size it is
   document.getElementById('brightnessGraphs').append(graph)
 
-  plot(graph, data, 0, 550, 0, 475);
-
+  plot(graph, data, 0, 110, 0, 475);
 }
 
 // Plot the data in the provided div
@@ -703,4 +702,10 @@ function plotPoint(graph, point, xMin, xMax, yMin, yMax) {
   div.style.border = '3px solid';
 
   graph.append(div);
+}
+
+// Calculate the width of the ring of necrotic tissue
+// using the radius of the leaf and the area of the ring
+function calculateRingWidth(r, area) {
+  return r - Math.sqrt(r**2 - (area/Math.PI));
 }
