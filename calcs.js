@@ -59,7 +59,7 @@ function loadImage() {
       // Classify which pixels are necrotic
       ({rows, pixels} = setNecroticPixels(rows, pixels));
 
-      // Set necroticPortion and necroticRate for each blob
+      // Set necroticPortion for each blob
       leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
 
       // Create and append concentration inputs
@@ -532,42 +532,72 @@ function createConcentrationInput(rowI, rowY, concentration) {
 function doCalculations(rows) {
   const regression = calculateSusceptibility(rows);
 
-  document.getElementById('slope').textContent = regression.slope;
-  document.getElementById('yIntercept').textContent = regression.yIntercept;
-  document.getElementById('rSquared').textContent = regression.rSquared;
+  // Display regression values for area calculation
+  document.querySelector('#linearRegressionArea .slope').textContent = regression.area.slope;
+  document.querySelector('#linearRegressionArea .yIntercept').textContent = regression.area.yIntercept;
+  document.querySelector('#linearRegressionArea .rSquared').textContent = regression.area.rSquared;
+
+  // Display regression values for width calculation
+  document.querySelector('#linearRegressionWidth .slope').textContent = regression.width.slope;
+  document.querySelector('#linearRegressionWidth .yIntercept').textContent = regression.width.yIntercept;
+  document.querySelector('#linearRegressionWidth .rSquared').textContent = regression.width.rSquared;
 }
 
 // Calculate the susceptibility linear regression
 function calculateSusceptibility(rows) {
   const concentrationInputs = document.querySelectorAll('input.concentration');
-  const data = [];
+  const dataArea = [];
+  const dataWidth = [];
 
   const radius = parseFloat(document.getElementById('diskDiameter').value)/2;
-  const area = Math.PI*(radius**2);
+  const diskArea = Math.PI*(radius**2);
   const hours = parseFloat(document.getElementById('hoursSoaked').value);
 
   for (let rowI = 0; rowI < rows.length; rowI++) {
     for (let blobI = 0; blobI < rows[rowI].length; blobI++) {
-      rows[rowI][blobI].necroticRate = rows[rowI][blobI].necroticPortion*area/hours;
+      const necroticArea = rows[rowI][blobI].necroticPortion*diskArea;
+
+      rows[rowI][blobI].necroticRateArea = necroticArea/hours;
+      rows[rowI][blobI].necroticRateWidth = calculateRingWidth(radius, necroticArea)/hours;
     }
   }
 
   concentrationInputs.forEach((input) => {
     const row = rows[input.row];
-    const necroticRateAvg = row.reduce((total, blob) => total + blob.necroticRate, 0)/row.length;
-    data[input.row] = {x: Math.log10(input.value), y: necroticRateAvg};
+    const necroticRateAreaAvg = row.reduce((total, blob) => total + blob.necroticRateArea, 0)/row.length;
+    const necroticRateWidthAvg = row.reduce((total, blob) => total + blob.necroticRateWidth, 0)/row.length;
+
+    dataArea[input.row] = {x: Math.log10(input.value), y: necroticRateAreaAvg};
+    dataWidth[input.row] = {x: Math.log10(input.value), y: necroticRateWidthAvg};
   });
 
-  xValues = data.map((point) => point.x);
-  yValues = data.map((point) => point.y);
+  // Plot for calculation using area
+  let xValues = dataArea.map((point) => point.x);
+  let yValues = dataArea.map((point) => point.y);
+  let xMin = Math.min(...xValues);
+  let xMax = Math.max(...xValues);
+  let yMin = Math.min(...yValues);
+  let yMax = Math.max(...yValues);
+
+  plot(document.getElementById('susceptibilityGraphArea'), dataArea, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1, true);
+
+  // Plot for calculation using width
+  xValues = dataWidth.map((point) => point.x);
+  yValues = dataWidth.map((point) => point.y);
   xMin = Math.min(...xValues);
   xMax = Math.max(...xValues);
   yMin = Math.min(...yValues);
   yMax = Math.max(...yValues);
 
-  plot(document.getElementById('susceptibilityGraph'), data, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1, true);
+  plot(document.getElementById('susceptibilityGraphWidth'), dataWidth, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1, true);
 
-  return linearRegression(data);
+  return {area: linearRegression(dataArea), width: linearRegression(dataWidth)};
+}
+
+// Calculate the width of the ring of necrotic tissue
+// using the radius of the leaf and the area of the ring
+function calculateRingWidth(r, area) {
+  return r - Math.sqrt(r**2 - (area/Math.PI));
 }
 
 function plotColorSums(colorSums, transitionI, row, col) {
@@ -702,10 +732,4 @@ function plotPoint(graph, point, xMin, xMax, yMin, yMax) {
   div.style.border = '3px solid';
 
   graph.append(div);
-}
-
-// Calculate the width of the ring of necrotic tissue
-// using the radius of the leaf and the area of the ring
-function calculateRingWidth(r, area) {
-  return r - Math.sqrt(r**2 - (area/Math.PI));
 }
