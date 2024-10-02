@@ -2,7 +2,7 @@
   Process:
   1. Upload image
   2. Create pixel 2D array
-  3. Label pixels isDark (all colors < 150)
+  3. Label pixels isDark (all colors < 200)
     a. Create blobs
       * top
       * left
@@ -193,7 +193,7 @@ function findDarkBlobs(pixels) {
 
 // Determine if a pixel is dark
 function isDark(pixel) {
-  return pixel.r < 150 && pixel.g < 150 && pixel.b < 150;
+  return pixel.r < 200 && pixel.g < 200 && pixel.b < 200;
 }
 
 // Mark all the dark pixels in a blob starting at x, y
@@ -327,11 +327,11 @@ function isBlobCircular(blob) {
   const width = blob.right - blob.left;
 
   // Width is within 2% of height
-  const isSquare = isWithinTolerance(height, width, 0.02);
+  const isSquare = isWithinTolerance(height, width, 0.06);
 
   // The number of pixels is within 2% of expected for a circle
   const numCirclePixels = Math.PI*(((height + width)/4)**2);
-  const isCorrectNumberOfPixels = isWithinTolerance(numCirclePixels, blob.pixelCoordinates.length, 0.02)
+  const isCorrectNumberOfPixels = isWithinTolerance(numCirclePixels, blob.pixelCoordinates.length, 0.05)
 
   return isSquare && isCorrectNumberOfPixels;
 }
@@ -347,14 +347,17 @@ function setNecroticPixels(rows, pixels) {
     for (let blobI = 0; blobI < rows[rowI].length; blobI++) {
       const blob = rows[rowI][blobI];
 
-      // Create an array of the sums and their corresponding coordinates
-      const colorSums = blob.pixelCoordinates.map((coordinate) => colorSum(coordinate, pixels));
-      colorSums.sort((a, b) => a.sum - b.sum);
+      // // Create an array of the sums and their corresponding coordinates
+      // const colorSums = blob.pixelCoordinates.map((coordinate) => colorSum(coordinate, pixels));
+      // colorSums.sort((a, b) => a.sum - b.sum);
 
-      // Index at the center of the transition between the healthy and necrotic color plateaus
-      const transitionI = findTransitionIndex(colorSums.map((colorSum) => colorSum.sum));
+      // // Index at the center of the transition between the healthy and necrotic color plateaus
+      // const transitionI = findTransitionIndex(colorSums.map((colorSum) => colorSum.sum));
 
-      blob.necroticCoordinates = colorSums.slice(transitionI).map((colorSum) => colorSum.coordinate);
+      // blob.necroticCoordinates = colorSums.slice(transitionI).map((colorSum) => colorSum.coordinate);
+
+      // It's necrotic if there's more red than green
+      blob.necroticCoordinates = blob.pixelCoordinates.filter((c) => pixels[c.y][c.x].r > pixels[c.y][c.x].g);
 
       // Set necrotic pixels
       for (const coordinate of blob.necroticCoordinates) {
