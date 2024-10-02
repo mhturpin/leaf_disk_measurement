@@ -347,7 +347,7 @@ function isBlobCircular(blob) {
   const numCirclePixels = Math.PI*(((height + width)/4)**2);
   const isCorrectNumberOfPixels = isWithinTolerance(numCirclePixels, blob.pixelCoordinates.length, 0.05)
 
-  return isSquare && isCorrectNumberOfPixels;
+  return isSquare && isCorrectNumberOfPixels && height > 100;
 }
 
 // Determine if a number is within the given tolerance of another number
