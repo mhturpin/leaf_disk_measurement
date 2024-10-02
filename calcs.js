@@ -356,8 +356,22 @@ function setNecroticPixels(rows, pixels) {
 
       blob.necroticCoordinates = colorSums.slice(transitionI).map((colorSum) => colorSum.coordinate);
 
+      // Set necrotic pixels
       for (const coordinate of blob.necroticCoordinates) {
         pixels[coordinate.y][coordinate.x].isNecrotic = true;
+      }
+
+      // Unset necrotic pixels that are veins
+      // Do it a few times because removing some pixels might mean more are caught the next time
+      for (let j = 0; j < 5; j++) {
+        blob.necroticCoordinates.forEach((coordinate, i) => {
+          if (isVein(coordinate.x, coordinate.y, pixels)) {
+            // Remove from blob
+            blob.necroticCoordinates.splice(i, 1);
+            // Remove from pixels
+            pixels[coordinate.y][coordinate.x].isNecrotic = false;
+          }
+        });
       }
 
       if (document.getElementById('showBrightnessGraphs').checked) {
@@ -732,4 +746,20 @@ function plotPoint(graph, point, xMin, xMax, yMin, yMax) {
   div.style.border = '3px solid';
 
   graph.append(div);
+}
+
+// Determine if a pixel is part of a vein
+function isVein(x, y, pixels) {
+  let neighboringNecroticPixels = 0;
+
+  for (let row = y - 5; row <= y + 5; row++) {
+    for (let col = x - 5; col <= x + 5; col++) {
+      if (pixels[row][col].isNecrotic) {
+        neighboringNecroticPixels++;
+      }
+    }
+  }
+
+  // Consider it a vein if less than 33% of the neighboring pixels are necrotic
+  return neighboringNecroticPixels < 121*0.33;
 }
