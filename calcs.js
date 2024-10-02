@@ -347,15 +347,6 @@ function setNecroticPixels(rows, pixels) {
     for (let blobI = 0; blobI < rows[rowI].length; blobI++) {
       const blob = rows[rowI][blobI];
 
-      // // Create an array of the sums and their corresponding coordinates
-      // const colorSums = blob.pixelCoordinates.map((coordinate) => colorSum(coordinate, pixels));
-      // colorSums.sort((a, b) => a.sum - b.sum);
-
-      // // Index at the center of the transition between the healthy and necrotic color plateaus
-      // const transitionI = findTransitionIndex(colorSums.map((colorSum) => colorSum.sum));
-
-      // blob.necroticCoordinates = colorSums.slice(transitionI).map((colorSum) => colorSum.coordinate);
-
       // It's necrotic if there's more red than green
       blob.necroticCoordinates = blob.pixelCoordinates.filter((c) => pixels[c.y][c.x].r > pixels[c.y][c.x].g);
 
@@ -376,83 +367,10 @@ function setNecroticPixels(rows, pixels) {
           }
         });
       }
-
-      if (document.getElementById('showBrightnessGraphs').checked) {
-        // Plot color sums for visual confirmation
-        plotColorSums(colorSums, transitionI, rowI, blobI);
-      }
     }
   }
 
   return {rows: rows, pixels: pixels};
-}
-
-// Sum up the rgb values of the pixel to be used as a brightness value
-function colorSum(coordinate, pixels) {
-  const pixel = pixels[coordinate.y][coordinate.x];
-
-  return {
-    sum: pixel.r + pixel.g + pixel.b,
-    coordinate: coordinate
-  };
-}
-
-function slope(x1, y1, x2, y2) {
-  return (y1 - y2)/(x1 - x2);
-}
-
-// Find where the data transitions between the two plateaus
-// The two plateaus are the healthy (dark) and dead (light) colors
-function findTransitionIndex(data) {
-  // Average over 10% to smooth out data
-  // Spike in slopes corresponds to the transition (slope increases then decreases)
-  const slopes = smoothedDerivative(data, 0.05, data.length/500);
-  const peakI = findPeak(slopes);
-
-  return Math.round(scaleArrayIndex(peakI, data.length, 0.05, data.length/500));
-}
-
-// Find the peak of the data (spike in the middle of the graph, not the maximum value)
-function findPeak(data) {
-  // The peak is where the slope goes from positive to negative (x intercept)
-  const slopes = smoothedDerivative(data, 0.05);
-
-  // The local maximum is now the minimum of all the data
-  const slopeDerivative = smoothedDerivative(slopes, 0.01);
-
-  // Position of minimum
-  const minI = slopeDerivative.indexOf(Math.min(...slopeDerivative));
-
-  // x intercept of `slopes`
-  const xInterceptI = scaleArrayIndex(minI, slopes.length, 0.01);
-
-  return scaleArrayIndex(xInterceptI, data.length, 0.05);
-}
-
-// Scale an index from the smoothedDerivative array to the corresponding index in the original array
-function scaleArrayIndex(i, originalLength, smoothingFactor, step=1) {
-  const chunkSize = chunkLength(originalLength, smoothingFactor);
-
-  return i*step + (chunkSize - 1)/2;
-}
-
-// Calculate the derivative using chunks of `smoothingFactor` to smooth it out
-function smoothedDerivative(data, smoothingFactor, step=1) {
-  const slopes = [];
-  const chunkSize = chunkLength(data.length, smoothingFactor);
-  const end = data.length*(1 - smoothingFactor);
-
-  for (let i = 0; i <= end; i += step) {
-    const chunk = data.slice(i, i + chunkSize);
-    slopes.push(linearRegression(chunk.map((num, i) => ({x: i, y: num}))).slope);
-  }
-
-  return slopes;
-}
-
-function chunkLength(dataLength, smoothingFactor) {
-  // Needs to be at least 2 to calculate linear regression
-  return Math.max(Math.round(dataLength*smoothingFactor), 2);
 }
 
 // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
@@ -615,46 +533,6 @@ function calculateSusceptibility(rows) {
 // using the radius of the leaf and the area of the ring
 function calculateRingWidth(r, area) {
   return r - Math.sqrt(r**2 - (area/Math.PI));
-}
-
-function plotColorSums(colorSums, transitionI, row, col) {
-  // Limit to about 100 elements and map to x, y coordinates
-  const step = Math.round(colorSums.length/100);
-  const data = colorSums.filter((sum, i) => i%step == 0).map((sum, i) => ({x: i, y: sum.sum}));
-
-  // Create the graph element
-  const graph = document.createElement('div');
-  graph.style.position = 'relative';
-  graph.style.display = 'inline-block';
-  graph.style.height = '300px';
-  graph.style.width = `calc(33% - 40px)`;
-  graph.style.margin = '20px';
-
-  // Add a line to show the transition cutoff
-  const labelAreaSize = 30;
-  const graphYPixels = 300 - labelAreaSize;
-  const yPixels = graphYPixels*colorSums[transitionI].sum/475;
-
-  const line = document.createElement('div');
-  line.style.position = 'absolute';
-  line.style.left = `${labelAreaSize}px`;
-  line.style.bottom = `calc(${yPixels}px + ${labelAreaSize}px)`;
-  line.style.width = `calc(100% - ${labelAreaSize}px)`;
-  line.style.border = '1px solid';
-  graph.append(line);
-
-  // Label which leaf disk it is
-  const label = document.createElement('span');
-  label.textContent = `row: ${row + 1}, col: ${col + 1}`;
-  label.style.position = 'absolute';
-  label.style.top = 0;
-  label.style.left = `${labelAreaSize + 20}px`;
-  graph.append(label);
-
-  // Append before plotting the element knows what size it is
-  document.getElementById('brightnessGraphs').append(graph)
-
-  plot(graph, data, 0, 110, 0, 475);
 }
 
 // Plot the data in the provided div
