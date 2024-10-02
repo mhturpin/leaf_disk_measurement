@@ -35,48 +35,37 @@
   * Show graph of concentration/necrotic
 */
 
+var pixels = [];
+var blobs = [];
+var leafDiskBlobs = [];
+var rows = [];
+
 window.onload = function() {
   document.querySelector('input#imageUpload').onchange = loadImage;
 }
 
 function loadImage() {
+  // Display original image
   const file = document.querySelector('input#imageUpload').files[0];
 
   getFileContentsAsBase64(file, (base64) => {
     document.querySelector('img#originalImage').src = base64;
 
-    base64ToPixels(base64, (pixels) => {
-      // Find the darker areas (leaf disks and writing)
-      ({blobs, pixels} = findDarkBlobs(pixels));
+    base64ToPixels(base64, () => {
+      findDarkBlobs();
+      findLeafDisks();
+      groupBlobsByRow();
+      setNecroticPixels();
+      createConcentrationInputs();
+      drawLeafDiskBorders();
+      doCalculations();
 
-      // Label each blob if it is a leaf disk or not
-      blobs.forEach((blob) => blob.isLeafDisk = isBlobCircular(blob));
-      let leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk).sort((a, b) => a.left - b.left);
-
-      // Group blobs into rows and sort
-      let rows = groupBlobsByRow(leafDiskBlobs).sort((a, b) => a[0].top - b[0].top);
-
-      // Classify which pixels are necrotic
-      ({rows, pixels} = setNecroticPixels(rows, pixels));
-
-      // Set necroticPortion for each blob
-      leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
-
-      // Create and append concentration inputs
-      const defaultConcentrations = [8, 12, 14, 16];
-      rows.forEach((row, i) => createConcentrationInput(i, row[0].top, defaultConcentrations[i]));
-
-      // Create borders to show user
-      pixels = drawBlobBorders(leafDiskBlobs, pixels);
-
-      // Do linear regression and display it on screen
-      doCalculations(rows);
-
+      // Display processed image
       document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels);
 
       // Enable "Recalculate" button
       const button = document.getElementById('calculate');
-      button.onclick = () => doCalculations(rows);
+      button.onclick = () => doCalculations();
     });
   });
 }
@@ -108,8 +97,8 @@ function base64ToPixels(base64, callback) {
     // 4 values represents 1 pixel (r, g, b, a)
     let imageData = ctx.getImageData(0, 0, img.width, img.height);
     // Initialize pixels based on height and width
-    // I iniially tried using `.fill([])`, but that seemed to make all the rows the same array object
-    let pixels = Array(imageData.height);
+    // I iniially tried using `.fill([])`, but that made all the rows the same array object
+    pixels = Array(imageData.height);
 
     for (let row = 0; row < imageData.height; row++) {
       pixels[row] = [];
@@ -122,7 +111,7 @@ function base64ToPixels(base64, callback) {
       }
     }
 
-    callback(pixels);
+    callback();
   };
 
   // Load the image and trigger the onload function
@@ -169,35 +158,35 @@ function pixelsToBase64(pixels) {
 }
 
 // Create a list of all the connected areas of dark pixels
-function findDarkBlobs(pixels) {
-  let blobs = [];
+function findDarkBlobs() {
   const height = pixels.length;
   const width = pixels[0].length;
 
   for (let row = 0; row < height; row++) {
     for (let col = 0; col < width; col++) {
       // Start new blob if the pixel has not already been added to a blob and is dark
-      if (!pixels[row][col].isDark && isDark(pixels[row][col])) {
+      if (!pixels[row][col].isDark && isDark(col, row)) {
         // Create new blob
         let newBlob = {pixelCoordinates: [], top: row, left: col, right: col, bottom: row};
-        ({blob, pixels} = markBlobDarkPixels(newBlob, pixels, col, row));
+        markBlobDarkPixels(newBlob, col, row);
 
         // Add blob to the list
-        blobs.push(blob);
+        blobs.push(newBlob);
       }
     }
   }
 
-  return {blobs: consolidateBlobs(blobs), pixels: pixels};
+  consolidateBlobs();
 }
 
 // Determine if a pixel is dark
-function isDark(pixel) {
+function isDark(x, y) {
+  let pixel = pixels[y][x];
   return pixel.r < 200 && pixel.g < 200 && pixel.b < 200;
 }
 
 // Mark all the dark pixels in a blob starting at x, y
-function markBlobDarkPixels(blob, pixels, x, y) {
+function markBlobDarkPixels(blob, x, y) {
   const height = pixels.length;
   const width = pixels[0].length;
   let currentPixel = {x: x, y: y};
@@ -205,9 +194,9 @@ function markBlobDarkPixels(blob, pixels, x, y) {
   for (let row = y; row < height; row++) {
     // Check pixels to the right
     for (let col = x; col < width; col++) {
-      if (!pixels[row][col].isDark && isDark(pixels[row][col])) {
+      if (!pixels[row][col].isDark && isDark(col, row)) {
         currentPixel = {x: col, y: row};
-        ({blob, pixels} = markDarkPixel(blob, pixels, currentPixel));
+        markDarkPixel(blob, currentPixel);
       } else {
         // Update right border
         blob.right = Math.max(blob.right, currentPixel.x);
@@ -216,9 +205,9 @@ function markBlobDarkPixels(blob, pixels, x, y) {
     }
     // Check pixels to the left
     for (let col = x-1; col >= 0; col--) {
-      if (!pixels[row][col].isDark && isDark(pixels[row][col])) {
+      if (!pixels[row][col].isDark && isDark(col, row)) {
         currentPixel = {x: col, y: row};
-        ({blob, pixels} = markDarkPixel(blob, pixels, currentPixel));
+        markDarkPixel(blob, currentPixel);
       } else {
         // Update left border
         blob.left = Math.min(blob.left, currentPixel.x);
@@ -234,31 +223,29 @@ function markBlobDarkPixels(blob, pixels, x, y) {
 
   // Update bottom border
   blob.bottom = currentPixel.y;
-  // Return blob and updated labeled pixels
-  return {blob: blob, pixels: pixels};
 }
 
-function markDarkPixel(blob, pixels, pixel) {
+function markDarkPixel(blob, pixel) {
   // Add new pixel to the list
   blob.pixelCoordinates.push(pixel);
 
   // Mark pixel as dark
   pixels[pixel.y][pixel.x].isDark = true;
-
-  return {blob: blob, pixels: pixels};
 }
 
 // Consolidate blobs if they touch or overlap
-function consolidateBlobs(blobs) {
+function consolidateBlobs() {
   const consolidatedBlobsList = [];
 
   for (const blob of blobs) {
     let blobMerged = false;
 
+    // Check if the blob overlaps one already in the list
     consolidatedBlobsList.forEach((existingBlob) => {
       if (!blobMerged && doBlobsTouch(existingBlob, blob)) {
         blobMerged = true;
-        existingBlob = mergeBlobs(existingBlob, blob);
+        // Merge blob into existingBlob
+        mergeBlobs(existingBlob, blob);
       }
     });
 
@@ -268,7 +255,7 @@ function consolidateBlobs(blobs) {
     }
   }
 
-  return consolidatedBlobsList;
+  blobs = consolidatedBlobsList;
 }
 
 // Determine if the two blobs touch or overlap
@@ -292,14 +279,20 @@ function mergeBlobs(blob1, blob2) {
   blob1.left = Math.min(blob1.left, blob2.left);
   blob1.right = Math.max(blob1.right, blob2.right);
   blob1.pixelCoordinates = blob1.pixelCoordinates.concat(blob2.pixelCoordinates);
+}
 
-  return blob1;
+function findLeafDisks() {
+  // Label each blob if it is a leaf disk or not
+  blobs.forEach((blob) => blob.isLeafDisk = isBlobCircular(blob));
+
+  // Pull out all the leaf disk blobs and sort by left index
+  leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk).sort((a, b) => a.left - b.left);
 }
 
 // Add the blob borders to the image
-function drawBlobBorders(blobs, pixels) {
-  blobs.forEach((blob) => {
-    const color = blob.isLeafDisk ? {r: 0, g: 200, b: 0} : {r: 0, g: 0, b: 0};
+function drawLeafDiskBorders() {
+  leafDiskBlobs.forEach((blob) => {
+    const color = {r: 0, g: 200, b: 0};
 
     // Draw vertical lines
     for (let row = blob.top-1; row <= blob.bottom+1; row++) {
@@ -317,8 +310,6 @@ function drawBlobBorders(blobs, pixels) {
       pixels[blob.bottom+2][col] = color;
     }
   });
-
-  return pixels;
 }
 
 // Determine if a blob is a circle based on the ratio of height/width and the number of pixels
@@ -342,7 +333,7 @@ function isWithinTolerance(correctNum, num, tolerance) {
 }
 
 // Sort pixels into healthy (dark) and dead (light)
-function setNecroticPixels(rows, pixels) {
+function setNecroticPixels() {
   for (let rowI = 0; rowI < rows.length; rowI++) {
     for (let blobI = 0; blobI < rows[rowI].length; blobI++) {
       const blob = rows[rowI][blobI];
@@ -359,7 +350,7 @@ function setNecroticPixels(rows, pixels) {
       // Do it a few times because removing some pixels might mean more are caught the next time
       for (let j = 0; j < 5; j++) {
         blob.necroticCoordinates.forEach((coordinate, i) => {
-          if (isVein(coordinate.x, coordinate.y, pixels)) {
+          if (isVein(coordinate.x, coordinate.y)) {
             // Remove from blob
             blob.necroticCoordinates.splice(i, 1);
             // Remove from pixels
@@ -370,7 +361,7 @@ function setNecroticPixels(rows, pixels) {
     }
   }
 
-  return {rows: rows, pixels: pixels};
+  leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
 }
 
 // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
@@ -419,10 +410,11 @@ function rSquared(data, coefficients) {
   return 1 - (regressionSquaredError/totalSquaredError);
 }
 
-function groupBlobsByRow(blobs) {
-  const rows = [];
+// Group the blobs by row and sort
+function groupBlobsByRow() {
+  rows = [];
 
-  for (const blob of blobs) {
+  for (const blob of leafDiskBlobs) {
     let blobRowAssigned = false;
 
     rows.forEach((row) => {
@@ -438,10 +430,15 @@ function groupBlobsByRow(blobs) {
     }
   }
 
-  return rows;
+  rows.sort((a, b) => a[0].top - b[0].top);
 }
 
 // Create inputs for the oxalic acid concentrations of each row
+function createConcentrationInputs() {
+  const defaultConcentrations = [8, 12, 14, 16];
+  rows.forEach((row, i) => createConcentrationInput(i, row[0].top, defaultConcentrations[i]));
+}
+
 function createConcentrationInput(rowI, rowY, concentration) {
   const originalImg = document.getElementById('originalImage');
 
@@ -464,8 +461,8 @@ function createConcentrationInput(rowI, rowY, concentration) {
 }
 
 // Do the calculations and display the results on screen
-function doCalculations(rows) {
-  const regression = calculateSusceptibility(rows);
+function doCalculations() {
+  const regression = calculateSusceptibility();
 
   // Display regression values for area calculation
   document.querySelector('#linearRegressionArea .slope').textContent = regression.area.slope;
@@ -479,7 +476,7 @@ function doCalculations(rows) {
 }
 
 // Calculate the susceptibility linear regression
-function calculateSusceptibility(rows) {
+function calculateSusceptibility() {
   const concentrationInputs = document.querySelectorAll('input.concentration');
   const dataArea = [];
   const dataWidth = [];
@@ -630,7 +627,7 @@ function plotPoint(graph, point, xMin, xMax, yMin, yMax) {
 }
 
 // Determine if a pixel is part of a vein
-function isVein(x, y, pixels) {
+function isVein(x, y) {
   let neighboringNecroticPixels = 0;
 
   for (let row = y - 5; row <= y + 5; row++) {
