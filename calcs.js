@@ -315,7 +315,7 @@ function findLeafDisks() {
 // Add the blob borders to the image
 function drawLeafDiskBorders() {
   leafDiskBlobs.forEach((blob) => {
-    const color = {r: 0, g: 200, b: 0};
+    const color = {r: 0, g: 0, b: 0};
 
     // Draw vertical lines
     for (let row = blob.top-1; row <= blob.bottom+1; row++) {
