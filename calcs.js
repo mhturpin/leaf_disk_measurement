@@ -1,6 +1,6 @@
 /*
   Process:
-  1. Upload image
+  1. User uploads image
   2. Create pixel 2D array
   3. Label pixels isDark (all colors < 200)
     a. Create blobs
@@ -8,31 +8,18 @@
       * left
       * right
       * bottom
+    b. Merge any blobs that are touching
   4. Label blobs isLeafDisk
     * height ~= width
     * Number of pixels ~= number of pixels in a circle
-  5. Find the transition point between healthy and necrotic leaf color
-    a. Make a list of all dark pixels
-    b. Do derivatives to isolate the transition point
-  6. Label necrotic pixels in leaf disk blobs (all pixels brighter than the transition point)
-    * Ignore/remove veins and isolated interior necrotic areas?
-  7. Display highlighted/labeled image
-    * Have a slider on the image to show before/after for visual confirmation?
-  8. Sort leaf disk blobs into rows (all leaf blobs that overlap vertically are one row)
-  9. Create an oxalic acid concentration (mM) input for each row
-  10. Fill in concentrations
-  11. Click "Process"
-  12. Calculate linear regression of each row
-    a. Necrotic percentage (maybe also distance from edge)
-    b. Necrotic rate (% necrosis * 197.93mm^2 / hours in bath)
-      * 197.93mm^2 = area of leaf disk
-    c. Calculate linear regression of necrotic rate (y) versus log(concentration) (x)
-  13. Display results
-
-  Future:
-  * Add R^2 value for linear regression
-  * Speed up processing time
-  * Show graph of concentration/necrotic
+    * height > 100 pixels
+  5. Group leaf disks into rows
+  6. Label necrotic pixels (pixels where there is more red than green)
+  7. Add inputs in line with rows to allow adjusting the concentrations if needed
+  8. Draw borders around the leaf disks
+  9. Calculate the linear regression for both area and width and display values and graph on screen
+  10. Display highlighted image
+  11. Add a button to allow recalculating after changing inputs
 */
 
 var pixels = [];
@@ -54,6 +41,7 @@ function processImage() {
   getFileContentsAsBase64(file, (base64) => {
     document.querySelector('img#originalImage').src = base64;
 
+    // Set pixels, then do processing in callback
     base64ToPixels(base64, () => {
       findDarkBlobs();
       findLeafDisks();
