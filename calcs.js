@@ -41,10 +41,13 @@ var leafDiskBlobs = [];
 var rows = [];
 
 window.onload = function() {
-  document.querySelector('input#imageUpload').onchange = loadImage;
+  document.querySelector('input#imageUpload').onchange = processImage;
 }
 
-function loadImage() {
+function processImage() {
+  // Clear out existing data from any previous image
+  clearExistingData();
+
   // Display original image
   const file = document.querySelector('input#imageUpload').files[0];
 
@@ -68,6 +71,26 @@ function loadImage() {
       button.onclick = () => doCalculations();
     });
   });
+}
+
+function clearExistingData() {
+  pixels = [];
+  blobs = [];
+  leafDiskBlobs = [];
+  rows = [];
+
+  document.getElementById('concentrationInputs').innerHTML = '';
+  document.getElementById('susceptibilityGraphArea').innerHTML = '';
+  document.getElementById('susceptibilityGraphWidth').innerHTML = '';
+
+  document.querySelector('#linearRegressionArea .slope').textContent = '';
+  document.querySelector('#linearRegressionArea .yIntercept').textContent = '';
+  document.querySelector('#linearRegressionArea .rSquared').textContent = '';
+
+  document.querySelector('#linearRegressionWidth .slope').textContent = '';
+  document.querySelector('#linearRegressionWidth .yIntercept').textContent = '';
+  document.querySelector('#linearRegressionWidth .rSquared').textContent = '';
+
 }
 
 // Convert file to base64
