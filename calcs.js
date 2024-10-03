@@ -15,11 +15,12 @@
     * height > 100 pixels
   5. Group leaf disks into rows
   6. Label necrotic pixels (pixels where there is more red than green)
-  7. Add inputs in line with rows to allow adjusting the concentrations if needed
-  8. Draw borders around the leaf disks
-  9. Calculate the linear regression for both area and width and display values and graph on screen
-  10. Display highlighted image
-  11. Add a button to allow recalculating after changing inputs
+  7. Find the circle that best fits the inner exdge of each necrotic ring (50% of pixels on the circle are necrotic)
+  8. Add inputs in line with rows to allow adjusting the concentrations if needed
+  9. Draw borders around the leaf disks
+  10. Calculate the linear regression for both area and width and display values and graph on screen
+  11. Display highlighted image
+  12. Add a button to allow recalculating after changing inputs
 */
 
 var pixels = [];
@@ -47,6 +48,7 @@ function processImage() {
       findLeafDisks();
       groupBlobsByRow();
       setNecroticPixels();
+      findBestFitCircles();
       createConcentrationInputs();
       drawLeafDiskBorders();
       doCalculations();
@@ -68,12 +70,17 @@ function clearExistingData() {
   rows = [];
 
   document.getElementById('concentrationInputs').innerHTML = '';
-  document.getElementById('susceptibilityGraphArea').innerHTML = '';
+  document.getElementById('susceptibilityGraphAreaPixels').innerHTML = '';
+  document.getElementById('susceptibilityGraphAreaCircle').innerHTML = '';
   document.getElementById('susceptibilityGraphWidth').innerHTML = '';
 
-  document.querySelector('#linearRegressionArea .slope').textContent = '';
-  document.querySelector('#linearRegressionArea .yIntercept').textContent = '';
-  document.querySelector('#linearRegressionArea .rSquared').textContent = '';
+  document.querySelector('#linearRegressionAreaPixels .slope').textContent = '';
+  document.querySelector('#linearRegressionAreaPixels .yIntercept').textContent = '';
+  document.querySelector('#linearRegressionAreaPixels .rSquared').textContent = '';
+
+  document.querySelector('#linearRegressionAreaCircle .slope').textContent = '';
+  document.querySelector('#linearRegressionAreaCircle .yIntercept').textContent = '';
+  document.querySelector('#linearRegressionAreaCircle .rSquared').textContent = '';
 
   document.querySelector('#linearRegressionWidth .slope').textContent = '';
   document.querySelector('#linearRegressionWidth .yIntercept').textContent = '';
@@ -325,14 +332,13 @@ function drawLeafDiskBorders() {
 
 // Determine if a blob is a circle based on the ratio of height/width and the number of pixels
 function isBlobCircular(blob) {
-  const height = blob.bottom - blob.top;
-  const width = blob.right - blob.left;
+  const {height, width} = blobDimensions(blob);
 
-  // Width is within 2% of height
+  // Width is within 6% of height
   const isSquare = isWithinTolerance(height, width, 0.06);
 
-  // The number of pixels is within 2% of expected for a circle
-  const numCirclePixels = Math.PI*(((height + width)/4)**2);
+  // The number of pixels is within 5% of expected for a circle
+  const numCirclePixels = circleArea((height + width)/4);
   const isCorrectNumberOfPixels = isWithinTolerance(numCirclePixels, blob.pixelCoordinates.length, 0.05)
 
   return isSquare && isCorrectNumberOfPixels && height > 100;
@@ -356,23 +362,8 @@ function setNecroticPixels() {
       for (const coordinate of blob.necroticCoordinates) {
         pixels[coordinate.y][coordinate.x].isNecrotic = true;
       }
-
-      // Unset necrotic pixels that are veins
-      // Do it a few times because removing some pixels might mean more are caught the next time
-      for (let j = 0; j < 5; j++) {
-        blob.necroticCoordinates.forEach((coordinate, i) => {
-          if (isVein(coordinate.x, coordinate.y)) {
-            // Remove from blob
-            blob.necroticCoordinates.splice(i, 1);
-            // Remove from pixels
-            pixels[coordinate.y][coordinate.x].isNecrotic = false;
-          }
-        });
-      }
     }
   }
-
-  leafDiskBlobs.forEach((blob) => blob.necroticPortion = blob.necroticCoordinates.length/blob.pixelCoordinates.length);
 }
 
 // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
@@ -475,10 +466,15 @@ function createConcentrationInput(rowI, rowY, concentration) {
 function doCalculations() {
   const regression = calculateSusceptibility();
 
-  // Display regression values for area calculation
-  document.querySelector('#linearRegressionArea .slope').textContent = regression.area.slope;
-  document.querySelector('#linearRegressionArea .yIntercept').textContent = regression.area.yIntercept;
-  document.querySelector('#linearRegressionArea .rSquared').textContent = regression.area.rSquared;
+  // Display regression values for area pixels calculation
+  document.querySelector('#linearRegressionAreaPixels .slope').textContent = regression.areaPixels.slope;
+  document.querySelector('#linearRegressionAreaPixels .yIntercept').textContent = regression.areaPixels.yIntercept;
+  document.querySelector('#linearRegressionAreaPixels .rSquared').textContent = regression.areaPixels.rSquared;
+
+  // Display regression values for area circle calculation
+  document.querySelector('#linearRegressionAreaCircle .slope').textContent = regression.areaCircle.slope;
+  document.querySelector('#linearRegressionAreaCircle .yIntercept').textContent = regression.areaCircle.yIntercept;
+  document.querySelector('#linearRegressionAreaCircle .rSquared').textContent = regression.areaCircle.rSquared;
 
   // Display regression values for width calculation
   document.querySelector('#linearRegressionWidth .slope').textContent = regression.width.slope;
@@ -489,58 +485,78 @@ function doCalculations() {
 // Calculate the susceptibility linear regression
 function calculateSusceptibility() {
   const concentrationInputs = document.querySelectorAll('input.concentration');
-  const dataArea = [];
+  const dataAreaPixels = [];
+  const dataAreaCircle = [];
   const dataWidth = [];
-
-  const radius = parseFloat(document.getElementById('diskDiameter').value)/2;
-  const diskArea = Math.PI*(radius**2);
+  const diskDiameter = parseFloat(document.getElementById('diskDiameter').value);
+  const radius = diskDiameter/2;
+  const diskArea = circleArea(radius);
   const hours = parseFloat(document.getElementById('hoursSoaked').value);
 
   for (let rowI = 0; rowI < rows.length; rowI++) {
     for (let blobI = 0; blobI < rows[rowI].length; blobI++) {
-      const necroticArea = rows[rowI][blobI].necroticPortion*diskArea;
+      const blob = rows[rowI][blobI];
+      const {height, width} = blobDimensions(blob);
+      const blobDiameterPixels = (height + width)/2
+      // Get the actual measurement of the inner radius
+      const innerRadius = (diskDiameter/blobDiameterPixels)*blob.necroticInnerRadius;
 
-      rows[rowI][blobI].necroticRateArea = necroticArea/hours;
-      rows[rowI][blobI].necroticRateWidth = calculateRingWidth(radius, necroticArea)/hours;
+      // Area using the pixel count
+      const necroticAreaPixels = (blob.necroticCoordinates.length/blob.pixelCoordinates.length)*diskArea;
+
+      // Area using the circle method
+      const necroticAreaCircle = diskArea - circleArea(innerRadius);
+
+      blob.necroticRateAreaPixels = necroticAreaPixels/hours;
+      blob.necroticRateAreaCircle = necroticAreaCircle/hours;
+      blob.necroticRateWidth = (radius - innerRadius)/hours;
     }
   }
 
   concentrationInputs.forEach((input) => {
     const row = rows[input.row];
-    const necroticRateAreaAvg = row.reduce((total, blob) => total + blob.necroticRateArea, 0)/row.length;
+    const necroticRateAreaPixelsAvg = row.reduce((total, blob) => total + blob.necroticRateAreaPixels, 0)/row.length;
+    const necroticRateAreaCircleAvg = row.reduce((total, blob) => total + blob.necroticRateAreaCircle, 0)/row.length;
     const necroticRateWidthAvg = row.reduce((total, blob) => total + blob.necroticRateWidth, 0)/row.length;
 
-    dataArea[input.row] = {x: Math.log10(input.value), y: necroticRateAreaAvg};
+    dataAreaPixels[input.row] = {x: Math.log10(input.value), y: necroticRateAreaPixelsAvg};
+    dataAreaCircle[input.row] = {x: Math.log10(input.value), y: necroticRateAreaCircleAvg};
+
     dataWidth[input.row] = {x: Math.log10(input.value), y: necroticRateWidthAvg};
   });
 
-  // Plot for calculation using area
-  let xValues = dataArea.map((point) => point.x);
-  let yValues = dataArea.map((point) => point.y);
-  let xMin = Math.min(...xValues);
-  let xMax = Math.max(...xValues);
-  let yMin = Math.min(...yValues);
-  let yMax = Math.max(...yValues);
+  // Plot for calculation using area pixel method
+  plotNecroticData(dataAreaPixels, 'susceptibilityGraphAreaPixels');
 
-  plot(document.getElementById('susceptibilityGraphArea'), dataArea, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1, true);
+  // Plot for calculation using area circle method
+  plotNecroticData(dataAreaCircle, 'susceptibilityGraphAreaCircle');
 
   // Plot for calculation using width
-  xValues = dataWidth.map((point) => point.x);
-  yValues = dataWidth.map((point) => point.y);
-  xMin = Math.min(...xValues);
-  xMax = Math.max(...xValues);
-  yMin = Math.min(...yValues);
-  yMax = Math.max(...yValues);
+  plotNecroticData(dataWidth, 'susceptibilityGraphWidth');
 
-  plot(document.getElementById('susceptibilityGraphWidth'), dataWidth, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1, true);
-
-  return {area: linearRegression(dataArea), width: linearRegression(dataWidth)};
+  return {areaPixels: linearRegression(dataAreaPixels), areaCircle: linearRegression(dataAreaCircle), width: linearRegression(dataWidth)};
 }
 
-// Calculate the width of the ring of necrotic tissue
-// using the radius of the leaf and the area of the ring
-function calculateRingWidth(r, area) {
-  return r - Math.sqrt(r**2 - (area/Math.PI));
+function plotNecroticData(data, id) {
+  const xValues = data.map((point) => point.x);
+  const yValues = data.map((point) => point.y);
+  const xMin = Math.min(...xValues);
+  const xMax = Math.max(...xValues);
+  const yMin = Math.min(...yValues);
+  const yMax = Math.max(...yValues);
+
+  plot(document.getElementById(id), data, xMin*0.9, xMax*1.1, yMin*0.9, yMax*1.1, true);
+}
+
+function blobDimensions(blob) {
+  const height = blob.bottom - blob.top;
+  const width = blob.right - blob.left;
+
+  return {height: height, width: width};
+}
+
+function circleArea(r) {
+  return Math.PI*(r**2);
 }
 
 // Plot the data in the provided div
@@ -637,18 +653,59 @@ function plotPoint(graph, point, xMin, xMax, yMin, yMax) {
   graph.append(div);
 }
 
-// Determine if a pixel is part of a vein
-function isVein(x, y) {
-  let neighboringNecroticPixels = 0;
 
-  for (let row = y - 5; row <= y + 5; row++) {
-    for (let col = x - 5; col <= x + 5; col++) {
-      if (pixels[row][col].isNecrotic) {
-        neighboringNecroticPixels++;
-      }
+function findBestFitCircles() {
+  leafDiskBlobs.forEach((blob) => {
+    const {height, width} = blobDimensions(blob);
+    const radius = Math.round((height + width)/4);
+    const centerX = (blob.left + blob.right)/2;
+    const centerY = (blob.top + blob.bottom)/2;
+
+    let circleR = radius;
+
+    while (circleNecroticPortion(circleR, centerX, centerY) > 0.5) {
+      circleR--;
+    }
+
+    blob.necroticInnerRadius = circleR;
+
+    drawCircle(circleR, centerX, centerY);
+  });
+
+}
+
+// Get the portion of pixels that are necrotic on by the given circle
+function circleNecroticPortion(r, x, y) {
+  const circlePixels = circleCoordinates(r, x, y);
+  const numNecrotic = circlePixels.filter((p) => pixels[p.y][p.x].isNecrotic).length;
+  const numPixels = circlePixels.filter((p) => pixels[p.y][p.x].isDark).length;
+
+  return numNecrotic/numPixels;
+}
+
+// Draw a circle on the image with radius r and center x, y
+function drawCircle(r, x, y) {
+  const coordinates = circleCoordinates(r, x, y);
+
+  for (c of coordinates) {
+    pixels[c.y][c.x] = {r: 0, g: 0, b: 0};
+  }
+}
+
+// Get an array containing all the pixels for a circle with the given radius and center
+function circleCoordinates(r, x, y) {
+  const steps = 1000;
+  const circlePixels = [];
+
+  for (var i = 0; i < steps; i++) {
+    const xVal = Math.round(x + r*Math.cos(2*Math.PI*i/steps));
+    const yVal = Math.round(y + r*Math.sin(2*Math.PI*i/steps));
+
+    // Don't add the pixel if it's already been added
+    if (circlePixels.find((p) => p.x === xVal && p.y === yVal) === undefined) {
+      circlePixels.push({x: xVal, y: yVal});
     }
   }
 
-  // Consider it a vein if less than 33% of the neighboring pixels are necrotic
-  return neighboringNecroticPixels < 121*0.33;
+  return circlePixels;
 }
