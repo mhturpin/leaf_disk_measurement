@@ -50,11 +50,12 @@ function processImage() {
       setNecroticPixels();
       findBestFitCircles();
       createConcentrationInputs();
-      drawLeafDiskBorders();
+      // drawLeafDiskBorders();
       doCalculations();
+      createRgbFilteredImages();
 
       // Display processed image
-      document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels);
+      document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels, true);
 
       // Enable "Recalculate" button
       const button = document.getElementById('calculate');
@@ -136,10 +137,10 @@ function base64ToPixels(base64, callback) {
   img.src = base64;
 }
 
-// Convert the pixel 2D array back to base64
-function pixelsToBase64(pixels) {
-  const height = pixels.length;
-  const width = pixels[0].length;
+// Convert a pixel 2D array back to base64
+function pixelsToBase64(pixelArray, highlightImage=false) {
+  const height = pixelArray.length;
+  const width = pixelArray[0].length;
   const imageData = new ImageData(width, height);
 
   // Populate imageData with pixel values
@@ -147,17 +148,17 @@ function pixelsToBase64(pixels) {
     for (let col = 0; col < width; col++) {
       const pixelNum = row*width + col;
 
-      imageData.data[pixelNum*4] = pixels[row][col].r;
-      imageData.data[pixelNum*4 + 1] = pixels[row][col].g;
-      imageData.data[pixelNum*4 + 2] = pixels[row][col].b;
+      imageData.data[pixelNum*4] = pixelArray[row][col].r;
+      imageData.data[pixelNum*4 + 1] = pixelArray[row][col].g;
+      imageData.data[pixelNum*4 + 2] = pixelArray[row][col].b;
       imageData.data[pixelNum*4 + 3] = 255; // Alpha
 
-      if (pixels[row][col].isNecrotic) {
+      if (pixelArray[row][col].isNecrotic && highlightImage) {
         imageData.data[pixelNum*4] = 255;
         imageData.data[pixelNum*4 + 1] = 100;
         imageData.data[pixelNum*4 + 2] = 0;
         imageData.data[pixelNum*4 + 3] = 255; // Alpha
-      } else if (pixels[row][col].isDark) {
+      } else if (pixelArray[row][col].isDark && highlightImage) {
         imageData.data[pixelNum*4] = 0;
         imageData.data[pixelNum*4 + 1] = 200;
         imageData.data[pixelNum*4 + 2] = 0;
@@ -669,7 +670,7 @@ function findBestFitCircles() {
 
     blob.necroticInnerRadius = circleR;
 
-    drawCircle(circleR, centerX, centerY);
+    // drawCircle(circleR, centerX, centerY);
   });
 
 }
@@ -708,4 +709,48 @@ function circleCoordinates(r, x, y) {
   }
 
   return circlePixels;
+}
+
+// Create images using only the r, g, or b channels to visualize differences
+function createRgbFilteredImages() {
+  ['r', 'g', 'b'].forEach((color) => {
+    document.querySelector(`img#${color}Image`).src = createMonochromeBlobsImage(structuredClone(pixels), color);
+  });
+}
+
+// Clear out all other values except the target color
+// and scale the color so the max value is 255
+function createMonochromeBlobsImage(imagePixels, color) {
+  const {min, max} = minMaxColorValues(color);
+  const range = max - min;
+
+  leafDiskBlobs.forEach((blob) => {
+    blob.pixelCoordinates.forEach(({x, y}) => {
+      const originalValue = imagePixels[y][x][color];
+      let newValue = Math.round(255*(originalValue - min)/range);
+
+      if (newValue < 0) {
+        newValue = 0;
+      } else if (newValue > 255) {
+        newValue = 255;
+      }
+
+      imagePixels[y][x].r = 0;
+      imagePixels[y][x].g = 0;
+      imagePixels[y][x].b = 0;
+      imagePixels[y][x][color] = newValue;
+    });
+  });
+
+  return pixelsToBase64(imagePixels);
+}
+
+// Find the min and max value of the given color within the leaf blob pixels
+function minMaxColorValues(color) {
+  const allCoordinates = leafDiskBlobs.map(b => b.pixelCoordinates).flat();
+  const values = allCoordinates.map(p => pixels[p.y][p.x][color]).sort((a, b) => a - b);
+  // Don't just take min and max, use 1% to reduce the light/dark outliers
+  const offset = Math.round(values.length*0.01);
+
+  return {min: values[offset], max: values[values.length - offset]};
 }
