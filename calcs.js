@@ -749,8 +749,8 @@ function createMonochromeBlobsImage(imagePixels, color) {
 function minMaxColorValues(color) {
   const allCoordinates = leafDiskBlobs.map(b => b.pixelCoordinates).flat();
   const values = allCoordinates.map(p => pixels[p.y][p.x][color]).sort((a, b) => a - b);
-  // Don't just take min and max, use 1% to reduce the light/dark outliers
-  const offset = Math.round(values.length*0.01);
+  // Don't just take min and max, use 5% to reduce the light/dark outliers
+  const offset = Math.round(values.length*0.05);
 
   return {min: values[offset], max: values[values.length - offset]};
 }
