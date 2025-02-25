@@ -578,8 +578,8 @@ function drawAxes(graph, xMin, xMax, yMin, yMax) {
   const graphYPixels = graph.offsetHeight - labelAreaSize;
   const xRange = xMax - xMin;
   const yRange = yMax - yMin;
-  const xLabelInterval = parseFloat((xRange/5).toPrecision(2));
-  const yLabelInterval = parseFloat((yRange/5).toPrecision(2));
+  const xLabelInterval = Math.max(parseFloat((xRange/5).toPrecision(2)), 0.001);
+  const yLabelInterval = Math.max(parseFloat((yRange/5).toPrecision(2)), 0.001);
 
   const axes = document.createElement('div');
   axes.style.marginLeft = `${labelAreaSize}px`;
@@ -662,6 +662,12 @@ function findBestFitCircles() {
 
     blob.necroticInnerRadius = findRadius(perimeterDistances);
 
+    if (blob.necroticInnerRadius === undefined) {
+      const {height, width} = blobDimensions(blob);
+
+      blob.necroticInnerRadius = (height + width)/4;
+    }
+
     drawCircle(blob.necroticInnerRadius, centerX, centerY);
   });
 
@@ -707,6 +713,11 @@ function findRadius(perimeterDistances) {
       lastI = i;
     }
   })
+
+  // If it can't find a circle
+  if (firstI === undefined) {
+    return undefined;
+  }
 
   // Scale the indices back to the original perimeterDistances array
   firstI = scaleArrayIndex(firstI, perimeterDistances.length, 0.05);
