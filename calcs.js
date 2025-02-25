@@ -695,6 +695,18 @@ function distance(x1, y1, x2, y2) {
 }
 
 function findRadius(perimeterDistances) {
+  // Make sure the array is less than 5000 so it doesn't take too long to calculate
+  if (perimeterDistances.length > 5000) {
+    const step = Math.ceil(perimeterDistances.length/5000);
+    const newArr = []
+
+    for (i = 0; i < perimeterDistances.length; i += step) {
+      newArr.push(perimeterDistances[i]);
+    }
+
+    perimeterDistances = newArr;
+  }
+
   // Calculate the smoothed slopes
   const perimeterDistancesWithIndex = perimeterDistances.map((d, i) => {return {x: i, y: d}});
   const slopes = smoothedDerivative(perimeterDistancesWithIndex, 0.05);
