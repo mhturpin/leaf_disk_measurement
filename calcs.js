@@ -39,6 +39,15 @@ function processImage() {
   // Display original image
   const file = document.querySelector('input#imageUpload').files[0];
 
+  // File size in MB
+  const fileSize = file.size/1048576;
+
+  // Files that are too large process too slowly
+  if (fileSize > 10) {
+    alert("Image can't be greater than 10MB.");
+    return;
+  }
+
   getFileContentsAsBase64(file, (base64) => {
     document.querySelector('img#originalImage').src = base64;
 
