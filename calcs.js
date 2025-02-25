@@ -360,8 +360,8 @@ function setNecroticPixels() {
       blob.necroticCoordinates = blob.pixelCoordinates.filter((c) => pixels[c.y][c.x].r > pixels[c.y][c.x].g);
 
       // Set necrotic pixels
-      for (const coordinate of blob.necroticCoordinates) {
-        pixels[coordinate.y][coordinate.x].isNecrotic = true;
+      for (const {x, y} of blob.necroticCoordinates) {
+        pixels[y][x].isNecrotic = true;
       }
     }
   }
@@ -373,9 +373,9 @@ function linearRegression(data) {
   let xsum = 0;
   let ysum = 0;
 
-  for (const point of data) {
-    xsum += point.x;
-    ysum += point.y;
+  for (const {x, y} of data) {
+    xsum += x;
+    ysum += y;
   }
 
   const xmean = xsum / data.length;
@@ -384,9 +384,7 @@ function linearRegression(data) {
   let num = 0;
   let denom = 0;
 
-  for (const point of data) {
-    const x = point.x;
-    const y = point.y;
+  for (const {x, y} of data) {
     num += (x - xmean) * (y - ymean);
     denom += (x - xmean) * (x - xmean);
   }
@@ -654,42 +652,101 @@ function plotPoint(graph, point, xMin, xMax, yMin, yMax) {
   graph.append(div);
 }
 
-
+// Find the cicles that best fit the line between live and necrotic tissue
 function findBestFitCircles() {
   leafDiskBlobs.forEach((blob) => {
-    const {height, width} = blobDimensions(blob);
-    const radius = Math.round((height + width)/4);
+    const perimeterPixels = blob.pixelCoordinates.filter(({x, y}) => isPerimeterPixel(x, y));
     const centerX = (blob.left + blob.right)/2;
     const centerY = (blob.top + blob.bottom)/2;
+    const perimeterDistances = perimeterPixels.map(({x, y}) => distance(x, y, centerX, centerY)).sort((a, b) => a - b);
 
-    let circleR = radius;
+    blob.necroticInnerRadius = findRadius(perimeterDistances);
 
-    while (circleNecroticPortion(circleR, centerX, centerY) > 0.5) {
-      circleR--;
-    }
-
-    blob.necroticInnerRadius = circleR;
-
-    // drawCircle(circleR, centerX, centerY);
+    drawCircle(blob.necroticInnerRadius, centerX, centerY);
   });
 
 }
 
-// Get the portion of pixels that are necrotic on by the given circle
-function circleNecroticPortion(r, x, y) {
-  const circlePixels = circleCoordinates(r, x, y);
-  const numNecrotic = circlePixels.filter((p) => pixels[p.y][p.x].isNecrotic).length;
-  const numPixels = circlePixels.filter((p) => pixels[p.y][p.x].isDark).length;
+// Returns true if the pixel is not necrotic and is adjacent to a necrotic pixel
+function isPerimeterPixel(x, y) {
+  if (pixels[y][x].isNecrotic) {
+    return false;
+  }
 
-  return numNecrotic/numPixels;
+  for (var i = x - 1; i <= x + 1; i++) {
+    for (var j = y - 1; j <= y + 1; j++) {
+      if (pixels[j][i].isNecrotic) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// Calculate the distance between two points
+function distance(x1, y1, x2, y2) {
+  return Math.sqrt((x1 - x2)**2 + (y1 - y2)**2);
+}
+
+function findRadius(perimeterDistances) {
+  // Calculate the smoothed slopes
+  const perimeterDistancesWithIndex = perimeterDistances.map((d, i) => {return {x: i, y: d}});
+  const slopes = smoothedDerivative(perimeterDistancesWithIndex, 0.05);
+
+  // Find first and last indices where slope < 0.02
+  let firstI;
+  let lastI;
+
+  slopes.forEach((s, i) => {
+    if (s < 0.02) {
+      if (firstI === undefined) {
+        firstI = i;
+      }
+
+      lastI = i;
+    }
+  })
+
+  // Scale the indices back to the original perimeterDistances array
+  firstI = scaleArrayIndex(firstI, perimeterDistances.length, 0.05);
+  lastI = scaleArrayIndex(lastI, perimeterDistances.length, 0.05);
+
+  return perimeterDistances[Math.round((firstI + lastI)/2)];
+}
+
+// Scale an index from the smoothedDerivative array to the corresponding index in the original array
+function scaleArrayIndex(i, originalLength, smoothingFactor) {
+  const chunkSize = chunkLength(originalLength, smoothingFactor);
+
+  return i + (chunkSize - 1)/2;
+}
+
+// Calculate the derivative using chunks of `smoothingFactor` to smooth it out
+function smoothedDerivative(data, smoothingFactor) {
+  const slopes = [];
+  const chunkSize = chunkLength(data.length, smoothingFactor);
+  const end = data.length*(1 - smoothingFactor);
+
+  for (let i = 0; i <= end; i++) {
+    const chunk = data.slice(i, i + chunkSize);
+    slopes.push(linearRegression(chunk).slope);
+  }
+
+  return slopes;
+}
+
+function chunkLength(dataLength, smoothingFactor) {
+  // Needs to be at least 2 to calculate linear regression
+  return Math.max(Math.round(dataLength*smoothingFactor), 2);
 }
 
 // Draw a circle on the image with radius r and center x, y
 function drawCircle(r, x, y) {
   const coordinates = circleCoordinates(r, x, y);
 
-  for (c of coordinates) {
-    pixels[c.y][c.x] = {r: 0, g: 0, b: 0};
+  for (const {x, y} of coordinates) {
+    pixels[y][x] = {r: 0, g: 0, b: 0};
   }
 }
 
