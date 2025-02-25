@@ -255,6 +255,9 @@ function markDarkPixel(blob, pixel) {
 function consolidateBlobs() {
   const consolidatedBlobsList = [];
 
+  // Starting with the smallest blobs first made this function about 12x faster
+  blobs.sort((b1, b2) => b1.pixelCoordinates.length - b2.pixelCoordinates.length);
+
   for (const blob of blobs) {
     let blobMerged = false;
 
