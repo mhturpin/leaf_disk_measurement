@@ -39,6 +39,15 @@ function processImage() {
   // Display original image
   const file = document.querySelector('input#imageUpload').files[0];
 
+  // File size in MB
+  const fileSize = file.size/1048576;
+
+  // Files that are too large process too slowly
+  if (fileSize > 10) {
+    alert("Image can't be greater than 10MB.");
+    return;
+  }
+
   getFileContentsAsBase64(file, (base64) => {
     document.querySelector('img#originalImage').src = base64;
 
@@ -255,6 +264,9 @@ function markDarkPixel(blob, pixel) {
 // Consolidate blobs if they touch or overlap
 function consolidateBlobs() {
   const consolidatedBlobsList = [];
+
+  // Starting with the smallest blobs first made this function about 12x faster
+  blobs.sort((b1, b2) => b1.pixelCoordinates.length - b2.pixelCoordinates.length);
 
   for (const blob of blobs) {
     let blobMerged = false;
@@ -696,6 +708,18 @@ function distance(x1, y1, x2, y2) {
 }
 
 function findRadius(perimeterDistances) {
+  // Make sure the array is less than 5000 so it doesn't take too long to calculate
+  if (perimeterDistances.length > 5000) {
+    const step = Math.ceil(perimeterDistances.length/5000);
+    const newArr = []
+
+    for (i = 0; i < perimeterDistances.length; i += step) {
+      newArr.push(perimeterDistances[i]);
+    }
+
+    perimeterDistances = newArr;
+  }
+
   // Calculate the smoothed slopes
   const perimeterDistancesWithIndex = perimeterDistances.map((d, i) => {return {x: i, y: d}});
   const slopes = smoothedDerivative(perimeterDistancesWithIndex, 0.05);
