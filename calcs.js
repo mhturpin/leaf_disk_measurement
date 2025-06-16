@@ -71,6 +71,7 @@ function processImage() {
 
       // Display processed image
       highlightLeafDiskPixels();
+      labelRowGroups();
       document.querySelector('img#highlightedImage').src = pixelsToBase64(highlighted_pixels);
 
       createDataCsv();
@@ -817,6 +818,7 @@ function circleCoordinates(r, x, y) {
   return circlePixels;
 }
 
+// Create a csv and add it to the download button
 function createDataCsv() {
   data = ['Top index,Left index,Right index,Bottom index,Num necrotic pixels,Num live pixels,Necrotic inner radius'];
 
@@ -831,4 +833,46 @@ function createDataCsv() {
   let a = document.getElementById('dataCsv');
   a.href = URL.createObjectURL(file);
   a.download = 'leaf_disk_data.csv';
+}
+
+// Add corner markers to each blob to indicate which row it got grouped into
+function labelRowGroups() {
+  rows.forEach((row, i) => {
+    for (blob of row) {
+      drawRowMarker(blob, i+1);
+    }
+  });
+}
+
+// Draw the corner blocks for a single blob
+function drawRowMarker(blob, number) {
+  let blockSize = Math.round((blob.bottom-blob.top)/10);
+
+  // Top left (1s)
+  if (number%2 == 1) {
+    drawBlock(blob.left, blob.top, blockSize);
+  }
+  // Top right (2s)
+  if (Math.floor(number/2)%2) {
+    drawBlock(blob.right-blockSize, blob.top, blockSize);
+  }
+  // Bottom left (4s)
+  if (Math.floor(number/4)%2) {
+    drawBlock(blob.left, blob.bottom-blockSize, blockSize);
+  }
+  // Bottom right (8s)
+  if (Math.floor(number/8)%2) {
+    drawBlock(blob.right-blockSize, blob.bottom-blockSize, blockSize);
+  }
+}
+
+// Draw a black square of the given size at the coordintes
+function drawBlock(startX, startY, size) {
+  for (var row = startY; row < startY+size; row++) {
+    for (var col = startX; col < startX+size; col++) {
+      highlighted_pixels[row][col].r = 0;
+      highlighted_pixels[row][col].g = 0;
+      highlighted_pixels[row][col].b = 0;
+    }
+  }
 }
