@@ -66,6 +66,9 @@ function processImage() {
       drawLeafDiskBorders();
       doCalculations();
 
+      // Log the data in case it's needed
+      console.log(leafDiskBlobs)
+
       // Display processed image
       highlightLeafDiskPixels();
       document.querySelector('img#highlightedImage').src = pixelsToBase64(highlighted_pixels);
