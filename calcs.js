@@ -23,7 +23,8 @@
   12. Add a button to allow recalculating after changing inputs
 */
 
-var pixels = [];
+var original_pixels = [];
+var highlighted_pixels = [];
 var blobs = [];
 var leafDiskBlobs = [];
 var rows = [];
@@ -57,13 +58,17 @@ function processImage() {
       findLeafDisks();
       groupBlobsByRow();
       setNecroticPixels();
+
+      highlighted_pixels = structuredClone(original_pixels);
+
       findBestFitCircles();
       createConcentrationInputs();
       drawLeafDiskBorders();
       doCalculations();
 
       // Display processed image
-      document.querySelector('img#highlightedImage').src = pixelsToBase64(pixels);
+      highlightLeafDiskPixels();
+      document.querySelector('img#highlightedImage').src = pixelsToBase64(highlighted_pixels);
 
       // Enable "Recalculate" button
       const button = document.getElementById('calculate');
@@ -73,7 +78,8 @@ function processImage() {
 }
 
 function clearExistingData() {
-  pixels = [];
+  original_pixels = [];
+  highlighted_pixels = [];
   blobs = [];
   leafDiskBlobs = [];
   rows = [];
@@ -125,16 +131,16 @@ function base64ToPixels(base64, callback) {
     let imageData = ctx.getImageData(0, 0, img.width, img.height);
     // Initialize pixels based on height and width
     // I iniially tried using `.fill([])`, but that made all the rows the same array object
-    pixels = Array(imageData.height);
+    original_pixels = Array(imageData.height);
 
     for (let row = 0; row < imageData.height; row++) {
-      pixels[row] = [];
+      original_pixels[row] = [];
 
       for (let col = 0; col < imageData.width; col++) {
         const pixelNum = row*imageData.width + col;
         const data = imageData.data.slice(pixelNum*4, pixelNum*4 + 3);
 
-        pixels[row][col] = {r: data[0], g: data[1], b: data[2]};
+        original_pixels[row][col] = {r: data[0], g: data[1], b: data[2]};
       }
     }
 
@@ -145,7 +151,7 @@ function base64ToPixels(base64, callback) {
   img.src = base64;
 }
 
-// Convert the pixel 2D array back to base64
+// Convert a pixel 2D array to base64
 function pixelsToBase64(pixels) {
   const height = pixels.length;
   const width = pixels[0].length;
@@ -160,18 +166,6 @@ function pixelsToBase64(pixels) {
       imageData.data[pixelNum*4 + 1] = pixels[row][col].g;
       imageData.data[pixelNum*4 + 2] = pixels[row][col].b;
       imageData.data[pixelNum*4 + 3] = 255; // Alpha
-
-      if (pixels[row][col].isNecrotic) {
-        imageData.data[pixelNum*4] = 255;
-        imageData.data[pixelNum*4 + 1] = 100;
-        imageData.data[pixelNum*4 + 2] = 0;
-        imageData.data[pixelNum*4 + 3] = 255; // Alpha
-      } else if (pixels[row][col].isDark) {
-        imageData.data[pixelNum*4] = 0;
-        imageData.data[pixelNum*4 + 1] = 200;
-        imageData.data[pixelNum*4 + 2] = 0;
-        imageData.data[pixelNum*4 + 3] = 255; // Alpha
-      }
     }
   }
 
@@ -184,15 +178,31 @@ function pixelsToBase64(pixels) {
   return canvas.toDataURL();
 }
 
+// Highlight leaf disk pixels
+function highlightLeafDiskPixels() {
+  const height = highlighted_pixels.length;
+  const width = highlighted_pixels[0].length;
+
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      if (highlighted_pixels[row][col].isNecrotic) {
+        highlighted_pixels[row][col].r *= 2;
+      } else if (highlighted_pixels[row][col].isDark) {
+        highlighted_pixels[row][col].g *= 2;
+      }
+    }
+  }
+}
+
 // Create a list of all the connected areas of dark pixels
 function findDarkBlobs() {
-  const height = pixels.length;
-  const width = pixels[0].length;
+  const height = original_pixels.length;
+  const width = original_pixels[0].length;
 
   for (let row = 0; row < height; row++) {
     for (let col = 0; col < width; col++) {
       // Start new blob if the pixel has not already been added to a blob and is dark
-      if (!pixels[row][col].isDark && isDark(col, row)) {
+      if (!original_pixels[row][col].isDark && isDark(col, row)) {
         // Create new blob
         let newBlob = {pixelCoordinates: [], top: row, left: col, right: col, bottom: row};
         markBlobDarkPixels(newBlob, col, row);
@@ -208,20 +218,20 @@ function findDarkBlobs() {
 
 // Determine if a pixel is dark
 function isDark(x, y) {
-  let pixel = pixels[y][x];
+  let pixel = original_pixels[y][x];
   return pixel.r < 200 && pixel.g < 200 && pixel.b < 200;
 }
 
 // Mark all the dark pixels in a blob starting at x, y
 function markBlobDarkPixels(blob, x, y) {
-  const height = pixels.length;
-  const width = pixels[0].length;
+  const height = original_pixels.length;
+  const width = original_pixels[0].length;
   let currentPixel = {x: x, y: y};
 
   for (let row = y; row < height; row++) {
     // Check pixels to the right
     for (let col = x; col < width; col++) {
-      if (!pixels[row][col].isDark && isDark(col, row)) {
+      if (!original_pixels[row][col].isDark && isDark(col, row)) {
         currentPixel = {x: col, y: row};
         markDarkPixel(blob, currentPixel);
       } else {
@@ -232,7 +242,7 @@ function markBlobDarkPixels(blob, x, y) {
     }
     // Check pixels to the left
     for (let col = x-1; col >= 0; col--) {
-      if (!pixels[row][col].isDark && isDark(col, row)) {
+      if (!original_pixels[row][col].isDark && isDark(col, row)) {
         currentPixel = {x: col, y: row};
         markDarkPixel(blob, currentPixel);
       } else {
@@ -257,7 +267,7 @@ function markDarkPixel(blob, pixel) {
   blob.pixelCoordinates.push(pixel);
 
   // Mark pixel as dark
-  pixels[pixel.y][pixel.x].isDark = true;
+  original_pixels[pixel.y][pixel.x].isDark = true;
 }
 
 // Consolidate blobs if they touch or overlap
@@ -326,18 +336,18 @@ function drawLeafDiskBorders() {
 
     // Draw vertical lines
     for (let row = blob.top-1; row <= blob.bottom+1; row++) {
-      pixels[row][blob.left-1] = color;
-      pixels[row][blob.right+1] = color;
-      pixels[row][blob.left-2] = color;
-      pixels[row][blob.right+2] = color;
+      highlighted_pixels[row][blob.left-1] = color;
+      highlighted_pixels[row][blob.right+1] = color;
+      highlighted_pixels[row][blob.left-2] = color;
+      highlighted_pixels[row][blob.right+2] = color;
     }
 
     // Draw horizontal lines
     for (let col = blob.left-1; col <= blob.right+1; col++) {
-      pixels[blob.top-1][col] = color;
-      pixels[blob.bottom+1][col] = color;
-      pixels[blob.top-2][col] = color;
-      pixels[blob.bottom+2][col] = color;
+      highlighted_pixels[blob.top-1][col] = color;
+      highlighted_pixels[blob.bottom+1][col] = color;
+      highlighted_pixels[blob.top-2][col] = color;
+      highlighted_pixels[blob.bottom+2][col] = color;
     }
   });
 }
@@ -368,11 +378,11 @@ function setNecroticPixels() {
       const blob = rows[rowI][blobI];
 
       // It's necrotic if there's more red than green
-      blob.necroticCoordinates = blob.pixelCoordinates.filter((c) => pixels[c.y][c.x].r > pixels[c.y][c.x].g);
+      blob.necroticCoordinates = blob.pixelCoordinates.filter((c) => original_pixels[c.y][c.x].r > original_pixels[c.y][c.x].g);
 
       // Set necrotic pixels
       for (const {x, y} of blob.necroticCoordinates) {
-        pixels[y][x].isNecrotic = true;
+        original_pixels[y][x].isNecrotic = true;
       }
     }
   }
@@ -686,13 +696,13 @@ function findBestFitCircles() {
 
 // Returns true if the pixel is not necrotic and is adjacent to a necrotic pixel
 function isPerimeterPixel(x, y) {
-  if (pixels[y][x].isNecrotic) {
+  if (original_pixels[y][x].isNecrotic) {
     return false;
   }
 
   for (var i = x - 1; i <= x + 1; i++) {
     for (var j = y - 1; j <= y + 1; j++) {
-      if (pixels[j][i].isNecrotic) {
+      if (original_pixels[j][i].isNecrotic) {
         return true;
       }
     }
@@ -780,7 +790,7 @@ function drawCircle(r, x, y) {
   const coordinates = circleCoordinates(r, x, y);
 
   for (const {x, y} of coordinates) {
-    pixels[y][x] = {r: 0, g: 0, b: 0};
+    highlighted_pixels[y][x] = {r: 255, g: 255, b: 255};
   }
 }
 
