@@ -746,7 +746,7 @@ function findRadius(perimeterDistances) {
   let lastI;
 
   slopes.forEach((s, i) => {
-    if (s < 0.02) {
+    if (s < 0.025) {
       if (firstI === undefined) {
         firstI = i;
       }
@@ -826,8 +826,8 @@ function createDataCsv() {
   data = ['Top index,Left index,Right index,Bottom index,Num necrotic pixels,Num live pixels,Necrotic inner radius'];
 
   for (const blob of leafDiskBlobs) {
-    let numNecroticPixels = blob.necroticCoordinates.length;
-    let numLivePixels = blob.pixelCoordinates.length - numNecroticPixels;
+    const numNecroticPixels = blob.necroticCoordinates.length;
+    const numLivePixels = blob.pixelCoordinates.length - numNecroticPixels;
     data.push([blob.top, blob.left, blob.right, blob.bottom, numNecroticPixels, numLivePixels, blob.necroticInnerRadius].join(','));
   }
 
