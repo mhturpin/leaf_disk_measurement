@@ -186,15 +186,12 @@ function pixelsToBase64(pixels) {
 
 // Highlight leaf disk pixels
 function highlightLeafDiskPixels() {
-  const height = highlighted_pixels.length;
-  const width = highlighted_pixels[0].length;
-
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-      if (highlighted_pixels[row][col].isNecrotic) {
-        highlighted_pixels[row][col].r *= 2;
-      } else if (highlighted_pixels[row][col].isDark) {
-        highlighted_pixels[row][col].g *= 2;
+  for (const blob of leafDiskBlobs) {
+    for (const {x, y} of blob.pixelCoordinates) {
+      if (highlighted_pixels[y][x].isNecrotic) {
+        highlighted_pixels[y][x].r *= 2;
+      } else if (highlighted_pixels[y][x].isDark) {
+        highlighted_pixels[y][x].g *= 2;
       }
     }
   }
@@ -840,7 +837,7 @@ function createDataCsv() {
 // Add corner markers to each blob to indicate which row it got grouped into
 function labelRowGroups() {
   rows.forEach((row, i) => {
-    for (blob of row) {
+    for (const blob of row) {
       drawRowMarker(blob, i+1);
     }
   });
