@@ -796,9 +796,10 @@ function chunkLength(dataLength, smoothingFactor) {
 // Draw a circle on the image with radius r and center x, y
 function drawCircle(r, x, y) {
   const coordinates = circleCoordinates(r, x, y);
+  const color = {r: 255, g: 50, b: 255};
 
   for (const {x, y} of coordinates) {
-    highlighted_pixels[y][x] = {r: 255, g: 255, b: 255};
+    drawBlock(x-1, y-1, 3, color);
   }
 }
 
@@ -830,9 +831,8 @@ function createDataCsv() {
     data.push([blob.top, blob.left, blob.right, blob.bottom, numNecroticPixels, numLivePixels, blob.necroticInnerRadius].join(','));
   }
 
-  let file = new Blob([data.join('\n')], {type: 'text/csv'});
-
-  let a = document.getElementById('dataCsv');
+  const file = new Blob([data.join('\n')], {type: 'text/csv'});
+  const a = document.getElementById('dataCsv');
   a.href = URL.createObjectURL(file);
   a.download = 'leaf_disk_data.csv';
 }
@@ -848,33 +848,34 @@ function labelRowGroups() {
 
 // Draw the corner blocks for a single blob
 function drawRowMarker(blob, number) {
-  let blockSize = Math.round((blob.bottom-blob.top)/10);
+  const blockSize = Math.round((blob.bottom-blob.top)/10);
+  const color = {r: 0, g: 0, b: 0};
 
   // Top left (1s)
   if (number%2 == 1) {
-    drawBlock(blob.left, blob.top, blockSize);
+    drawBlock(blob.left, blob.top, blockSize, color);
   }
   // Top right (2s)
   if (Math.floor(number/2)%2) {
-    drawBlock(blob.right-blockSize, blob.top, blockSize);
+    drawBlock(blob.right-blockSize, blob.top, blockSize, color);
   }
   // Bottom left (4s)
   if (Math.floor(number/4)%2) {
-    drawBlock(blob.left, blob.bottom-blockSize, blockSize);
+    drawBlock(blob.left, blob.bottom-blockSize, blockSize, color);
   }
   // Bottom right (8s)
   if (Math.floor(number/8)%2) {
-    drawBlock(blob.right-blockSize, blob.bottom-blockSize, blockSize);
+    drawBlock(blob.right-blockSize, blob.bottom-blockSize, blockSize, color);
   }
 }
 
 // Draw a black square of the given size at the coordintes
-function drawBlock(startX, startY, size) {
+function drawBlock(startX, startY, size, color) {
   for (var row = startY; row < startY + size; row++) {
     for (var col = startX; col < startX + size; col++) {
-      highlighted_pixels[row][col].r = 0;
-      highlighted_pixels[row][col].g = 0;
-      highlighted_pixels[row][col].b = 0;
+      highlighted_pixels[row][col].r = color.r;
+      highlighted_pixels[row][col].g = color.g;
+      highlighted_pixels[row][col].b = color.b;
     }
   }
 }
