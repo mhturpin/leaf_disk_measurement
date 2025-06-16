@@ -73,6 +73,8 @@ function processImage() {
       highlightLeafDiskPixels();
       document.querySelector('img#highlightedImage').src = pixelsToBase64(highlighted_pixels);
 
+      createDataCsv();
+
       // Enable "Recalculate" button
       const button = document.getElementById('calculate');
       button.onclick = () => doCalculations();
@@ -813,4 +815,20 @@ function circleCoordinates(r, x, y) {
   }
 
   return circlePixels;
+}
+
+function createDataCsv() {
+  data = ['Top index,Left index,Right index,Bottom index,Num necrotic pixels,Num live pixels,Necrotic inner radius'];
+
+  for (const blob of leafDiskBlobs) {
+    let numNecroticPixels = blob.necroticCoordinates.length;
+    let numLivePixels = blob.pixelCoordinates.length - numNecroticPixels;
+    data.push([blob.top, blob.left, blob.right, blob.bottom, numNecroticPixels, numLivePixels, blob.necroticInnerRadius].join(','));
+  }
+
+  let file = new Blob([data.join('\n')], {type: 'text/csv'});
+
+  let a = document.getElementById('dataCsv');
+  a.href = URL.createObjectURL(file);
+  a.download = 'leaf_disk_data.csv';
 }
