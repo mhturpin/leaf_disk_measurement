@@ -331,8 +331,8 @@ function findLeafDisks() {
   // Label each blob if it is a leaf disk or not
   blobs.forEach((blob) => blob.isLeafDisk = isBlobCircular(blob));
 
-  // Pull out all the leaf disk blobs and sort by left index
-  leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk).sort((a, b) => a.left - b.left);
+  // Pull out all the leaf disk blobs and sort by left index, then top index
+  leafDiskBlobs = blobs.filter((blob) => blob.isLeafDisk).sort((a, b) => a.left - b.left).sort((a, b) => a.top - b.top);
 }
 
 // Add the blob borders to the image
@@ -446,7 +446,9 @@ function groupBlobsByRow() {
     let blobRowAssigned = false;
 
     rows.forEach((row) => {
-      if (!blobRowAssigned && rangesOverlap(row[0].top, row[0].bottom, blob.top, blob.bottom)) {
+      blobVerticalMiddle = (blob.top + blob.bottom)/2;
+
+      if (!blobRowAssigned && row[0].top < blobVerticalMiddle && row[0].bottom > blobVerticalMiddle) {
         blobRowAssigned = true;
         row.push(blob);
       }
@@ -868,8 +870,8 @@ function drawRowMarker(blob, number) {
 
 // Draw a black square of the given size at the coordintes
 function drawBlock(startX, startY, size) {
-  for (var row = startY; row < startY+size; row++) {
-    for (var col = startX; col < startX+size; col++) {
+  for (var row = startY; row < startY + size; row++) {
+    for (var col = startX; col < startX + size; col++) {
       highlighted_pixels[row][col].r = 0;
       highlighted_pixels[row][col].g = 0;
       highlighted_pixels[row][col].b = 0;
