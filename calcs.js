@@ -35,7 +35,9 @@ class LeafDiskImage {
     let fileBase64 = await this.getFileContentsAsBase64();
     document.querySelector('img#originalImage').src = fileBase64;
     this.pixels = await this.base64ToPixels(fileBase64);
-
+    // Assume the image is a 3" wide index card and the leaf disks are 5/8"
+    this.expectedLeafDiskDiameter = (this.pixels[0].length/3)*5/8;
+    this.expectedLeafDiskPerimeter = Math.PI*this.expectedLeafDiskDiameter;
 
     let startTime = Date.now();
     this.findEdges();
@@ -54,7 +56,7 @@ class LeafDiskImage {
       let color = {r: gradient/3, g: gradient/3, b: gradient/3};
 
       // If the edge is longer, highlight it
-      if (isEdge && this.edges[edgeIndex].length > 200) {
+      if (isEdge && this.edges[edgeIndex].length > this.expectedLeafDiskPerimeter*0.75) {
         color = {r: 0, g: 255, b: 0};
       }
 
@@ -123,10 +125,6 @@ class LeafDiskImage {
 
     // Calculate the gradient and angle for each pixel
     this.forEachPixel(this.setGradientValues);
-
-
-    console.log('this.strongGradientCoordinates:');
-    console.log(this.strongGradientCoordinates);
 
     // If the pixel gradient is not the maximum of the 3 in line with the gradient direction, set it to 0
     // This ensures that we only have one pixel per edge
