@@ -55,8 +55,8 @@ class LeafDiskImage {
       // Edges will appear white and everything else black
       let color = {r: gradient/3, g: gradient/3, b: gradient/3};
 
-      // If the edge is longer, highlight it
-      if (isEdge && this.edges[edgeIndex].length > this.expectedLeafDiskPerimeter*0.75) {
+      // If the edge is a leaf disk, highlight it
+      if (isEdge && this.isEdgeCircular(this.edges[edgeIndex])) {
         color = {r: 0, g: 255, b: 0};
       }
 
@@ -140,9 +140,6 @@ class LeafDiskImage {
 
     // Create the coordinate arrays for all the connected edges
     this.groupContinuousEdges();
-
-    console.log('this.edges:');
-    console.log(this.edges);
   }
 
   // Calls the function with row and col for each pixel in the image
@@ -244,7 +241,20 @@ class LeafDiskImage {
     for (const {row, col} of this.strongGradientCoordinates) {
       // If the pixels is part of an edge and has not yet been put in a group, then group it and all the ones connected to it
       if (this.pixels[row][col].isEdge && !this.pixels[row][col].isGrouped) {
-        this.edges.push(this.findConnectedEdgePixels(row, col, this.edges.length));
+        const connectedPixels = this.findConnectedEdgePixels(row, col, this.edges.length);
+        const edgeRows = connectedPixels.map(p => p.row);
+        const edgeCols = connectedPixels.map(p => p.col);
+        const newEdge = {
+          top: Math.min(...edgeRows),
+          bottom: Math.max(...edgeRows),
+          left: Math.min(...edgeCols),
+          right: Math.max(...edgeCols),
+          coordinates: connectedPixels
+        }
+        newEdge.height = newEdge.bottom - newEdge.top;
+        newEdge.width = newEdge.right - newEdge.left;
+
+        this.edges.push(newEdge);
       }
     }
   }
@@ -272,6 +282,20 @@ class LeafDiskImage {
 
       return pixelList;
     }
+  }
+
+  // Determine if an edge is a circle based on the ratio of height/width and the number of pixels
+  isEdgeCircular({height, width, coordinates}) {
+    const isSquare = this.isWithinTolerance(height, width, 0.1);
+    const isCorrectPerimeter = coordinates.length*0.9 > this.expectedLeafDiskPerimeter;
+    const isCorrectDiameter = this.isWithinTolerance(this.expectedLeafDiskDiameter, width, 0.1);
+
+    return isSquare && isCorrectPerimeter && isCorrectDiameter;
+  }
+
+  // Determine if a number is within the given tolerance of another number
+  isWithinTolerance(correctNum, num, tolerance) {
+    return Math.abs(correctNum - num) < correctNum*tolerance;
   }
 
   // Converts the pixels into a base64 data URL
