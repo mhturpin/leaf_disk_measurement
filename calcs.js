@@ -140,6 +140,9 @@ class LeafDiskImage {
 
     // Create the coordinate arrays for all the connected edges
     this.groupContinuousEdges();
+
+    // console.log(this.edges.filter(e => e.coordinates.length > 500))
+    // console.log(this.edges.filter(e => e.coordinates.length > 500).map(e => this.isEdgeCircular(e)))
   }
 
   // Calls the function with row and col for each pixel in the image
@@ -275,7 +278,7 @@ class LeafDiskImage {
 
       for (var i = row-2; i <= row+2; i++) {
         for (var j = col-2; j <= col+2; j++) {
-          if (this.pixels[row]?.[col] !== undefined && this.pixels[row][col].isEdge && !this.pixels[row][col].isGrouped) {
+          if (this.pixels[i]?.[j] !== undefined && this.pixels[i][j].isEdge && !this.pixels[i][j].isGrouped) {
             pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
           }
         }
