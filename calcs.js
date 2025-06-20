@@ -14,17 +14,19 @@
 
 window.onload = function() {
   document.querySelector('input#imageUpload').onchange = async (e) => {
+    const startTime = Date.now();
     image = new LeafDiskImage(e.target.files[0]);
     await image.processImage();
     document.querySelector('img#highlightedImage').src = image.getGradientImage();
 
-
+    console.log(`Total time: ${Date.now() - startTime}`);
   }
 }
 
 class LeafDiskImage {
   constructor(file) {
     this.file = file;
+    this.strongGradientCoordinates = [];
   }
 
   // Do all the image processing from loading the file to determining necrotic areas
@@ -33,12 +35,14 @@ class LeafDiskImage {
     let fileBase64 = await this.getFileContentsAsBase64();
     document.querySelector('img#originalImage').src = fileBase64;
     this.pixels = await this.base64ToPixels(fileBase64);
+
+
+    let startTime = Date.now();
     this.findEdges();
+    console.log(`findEdges: ${Date.now() - startTime}`);
 
 
-
-
-
+    console.log('this.pixels:');
     console.log(this.pixels);
   }
 
@@ -49,25 +53,13 @@ class LeafDiskImage {
       // Edges will appear white and everything else black
       let color = {r: gradient/3, g: gradient/3, b: gradient/3};
 
-
-      if (isEdge) {
-        console.log(`edgeIndex: ${edgeIndex}`);
-      }
-
-
       // If the edge is longer, highlight it
       if (isEdge && this.edges[edgeIndex].length > 200) {
         color = {r: 0, g: 255, b: 0};
       }
 
-      // for (const edge of this.edges) {
-      //   for (const {row, col} of edge) {
-      //     color = {r: 0, g: 255, b: 0};
-      //   }
-      // }
-
       return color;
-    })
+    });
   }
 
   /*
@@ -102,7 +94,6 @@ class LeafDiskImage {
         // 4 values represents 1 pixel (r, g, b, a)
         const imageData = ctx.getImageData(0, 0, img.width, img.height);
         // Initialize pixels based on height and width
-        // I iniially tried using `.fill([])`, but that made all the rows the same array object
         const pixels = Array(imageData.height);
 
         for (let row = 0; row < imageData.height; row++) {
@@ -133,24 +124,27 @@ class LeafDiskImage {
     // Calculate the gradient and angle for each pixel
     this.forEachPixel(this.setGradientValues);
 
-    // If the pixel gradient is not the maximum of the 3 in line with the gradient direction
-    // or if it does not meet the threshold, set it to 0
-    // The maximum rule ensures that we only have one pixel per edge
-    // Canny edge detection normally includes a weak edge threshold as well,
-    // but that is not needed here because the image will be dark leaves on a white background
-    this.forEachPixel((row, col) => {
-      if (!this.isMaxGradient(row, col) || this.pixels[row][col].gradient < 500) {
+
+    console.log('this.strongGradientCoordinates:');
+    console.log(this.strongGradientCoordinates);
+
+    // If the pixel gradient is not the maximum of the 3 in line with the gradient direction, set it to 0
+    // This ensures that we only have one pixel per edge
+    // Thresholding done when setting the pixel gradients to improve performance
+    for (const {row, col} of this.strongGradientCoordinates) {
+      if (!this.isMaxGradient(row, col)) {
         this.pixels[row][col].gradient = 0;
         this.pixels[row][col].isEdge = false;
       } else {
         this.pixels[row][col].isEdge = true;
       }
-    });
+    }
 
     // Create the coordinate arrays for all the connected edges
     this.groupContinuousEdges();
 
-    console.log(this.edges)
+    console.log('this.edges:');
+    console.log(this.edges);
   }
 
   // Calls the function with row and col for each pixel in the image
@@ -171,11 +165,20 @@ class LeafDiskImage {
     const sumLeft = this.sumPixelBrightnesses([row-1, row+1], [col-1, col-1]);
     const sumRight = this.sumPixelBrightnesses([row-1, row+1], [col+1, col+1]);
     const horizontalGradient = sumLeft - sumRight;
+    const totalGradient = Math.sqrt(verticalGradient**2 + horizontalGradient**2);
 
-    this.pixels[row][col].gradient = Math.sqrt(verticalGradient**2 + horizontalGradient**2);
+    // Handle gradient threshold here so we don't have to loop through the entire image in future steps
+    // Canny edge detection normally includes a weak edge threshold as well,
+    // but that is not needed here because the image will be dark leaves on a white background
+    if (totalGradient > 500) {
+      // Add this pixel to the list of strong gradients
+      this.strongGradientCoordinates.push({row: row, col: col});
 
-    const angleDegrees = Math.atan(verticalGradient/horizontalGradient)*180/Math.PI;
-    this.pixels[row][col].gradientAngle = Math.round(angleDegrees/45)*45;
+      // Set the values on the pixel
+      this.pixels[row][col].gradient = totalGradient;
+      const angleDegrees = Math.atan(verticalGradient/horizontalGradient)*180/Math.PI;
+      this.pixels[row][col].gradientAngle = Math.round(angleDegrees/45)*45;
+    }
   }
 
   // Return the total brightness value for a pixel
@@ -235,23 +238,23 @@ class LeafDiskImage {
     return this.pixels[row][col].gradient > Math.max(...neighborGradients.filter((g) => typeof g === 'number'));
   }
 
-  // Loop through all the pixels and group them into continuous edges
+  // Loop through all the strong gradient pixels and group them into continuous edges
   // Set this.edges to an array of coordinate arrays, each coordinate array representing one continuous edge
   groupContinuousEdges() {
     this.edges = [];
 
-    this.forEachPixel((row, col) => {
+    for (const {row, col} of this.strongGradientCoordinates) {
       // If the pixels is part of an edge and has not yet been put in a group, then group it and all the ones connected to it
       if (this.pixels[row][col].isEdge && !this.pixels[row][col].isGrouped) {
         this.edges.push(this.findConnectedEdgePixels(row, col, this.edges.length));
       }
-    });
+    }
   }
 
   // Return a coordinate array of all edge pixels connected to the pixel at the given coordinates
   // The edgeIndex parameter identifies which edge the pixel is getting grouped into
   findConnectedEdgePixels(row, col, edgeIndex) {
-    if (!this.pixels[row][col].isEdge || this.pixels[row][col].isGrouped || this.pixels[row]?.[col] === undefined) {
+    if (this.pixels[row]?.[col] === undefined || !this.pixels[row][col].isEdge || this.pixels[row][col].isGrouped) {
       // If the pixel is not an edge, is not a valid pixel (index out of bounds), or has already been processed, return
       return [];
     } else {
@@ -283,9 +286,6 @@ class LeafDiskImage {
 
     // Populate imageData with pixel values
     this.forEachPixel((row, col) => {
-      if (this.pixels[row][col].isEdge) {
-        console.log(`row: ${row}, col: ${col}`)
-      }
       const {r, g, b} = transformation(this.pixels[row][col]);
       const pixelNum = row*width + col;
 
