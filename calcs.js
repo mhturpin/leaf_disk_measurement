@@ -263,8 +263,7 @@ class LeafDiskImage {
   // The edgeIndex parameter identifies which edge the pixel is getting grouped into
   findConnectedEdgePixels(row, col, edgeIndex) {
     if (this.pixels[row]?.[col] === undefined || !this.pixels[row][col].isEdge || this.pixels[row][col].isGrouped) {
-      // If the pixel is not an edge, is not a valid pixel (index out of bounds), or has already been processed, return
-      return [];
+      throw new Error('findConnectedEdgePixels called with invalid pixel');
     } else {
       // Mark the pixel as grouped so that we don't process it again
       this.pixels[row][col].isGrouped = true;
@@ -276,7 +275,9 @@ class LeafDiskImage {
 
       for (var i = row-2; i <= row+2; i++) {
         for (var j = col-2; j <= col+2; j++) {
-          pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
+          if (this.pixels[row]?.[col] !== undefined && this.pixels[row][col].isEdge && !this.pixels[row][col].isGrouped) {
+            pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
+          }
         }
       }
 
