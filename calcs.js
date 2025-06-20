@@ -263,17 +263,16 @@ class LeafDiskImage {
       this.pixels[row][col].edgeIndex = edgeIndex;
 
       // Return an array including the current coordinates and all the neighboring edge pixels
-      return [
-        {row: row, col: col},
-        ...this.findConnectedEdgePixels(row-1, col-1, edgeIndex),
-        ...this.findConnectedEdgePixels(row-1, col, edgeIndex),
-        ...this.findConnectedEdgePixels(row-1, col+1, edgeIndex),
-        ...this.findConnectedEdgePixels(row, col-1, edgeIndex),
-        ...this.findConnectedEdgePixels(row, col+1, edgeIndex),
-        ...this.findConnectedEdgePixels(row+1, col-1, edgeIndex),
-        ...this.findConnectedEdgePixels(row+1, col, edgeIndex),
-        ...this.findConnectedEdgePixels(row+1, col+1, edgeIndex)
-      ];
+      // Allow for gaps of 1px in case the edge has a discontinuity
+      const pixelList = [{row: row, col: col}];
+
+      for (var i = row-2; i <= row+2; i++) {
+        for (var j = col-2; j <= col+2; j++) {
+          pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
+        }
+      }
+
+      return pixelList;
     }
   }
 
