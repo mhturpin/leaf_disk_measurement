@@ -15,6 +15,7 @@
 window.onload = function() {
   document.querySelector('input#imageUpload').onchange = async (e) => {
     const startTime = Date.now();
+
     image = new LeafDiskImage(e.target.files[0]);
     await image.processImage();
     document.querySelector('img#highlightedImage').src = image.getGradientImage();
@@ -23,25 +24,60 @@ window.onload = function() {
   }
 }
 
+// Calls the function with each row and col for the given ranges
+// Indices are inclusive
+function forEachRowCol(startRow, endRow, startCol, endCol, doSomething) {
+  const values = [];
+
+  for (let row = startRow; row <= endRow; row++) {
+
+
+    for (let col = startCol; col <= endCol; col++) {
+      // Use .bind(this) because otherwise the passed in function does not have the context
+      values.push(doSomething(row, col));
+    }
+  }
+
+  return values;
+}
+
+/* ============================================== */
+// A class to handle processing the leaf disk image
+// and calculating values
+/* ============================================== */
 class LeafDiskImage {
   constructor(file) {
     this.file = file;
-    this.strongGradientCoordinates = [];
   }
 
   // Do all the image processing from loading the file to determining necrotic areas
   async processImage() {
-    // TODO: might need to wrap this in a promise
-    let fileBase64 = await this.getFileContentsAsBase64();
+    let startTime = Date.now();
+    let fileBase64 = await getFileContentsAsBase64(this.file);
     document.querySelector('img#originalImage').src = fileBase64;
-    this.pixels = await this.base64ToPixels(fileBase64);
+    this.pixels = await base64ToPixels(fileBase64);
+
+    // Set expected sizes for the leaf disks
     // Assume the image is a 3" wide index card and the leaf disks are 5/8"
     this.expectedLeafDiskDiameter = (this.pixels[0].length/3)*5/8;
     this.expectedLeafDiskPerimeter = Math.PI*this.expectedLeafDiskDiameter;
+    console.log(`Load image: ${Date.now() - startTime}`);
 
-    let startTime = Date.now();
-    this.findEdges();
+    startTime = Date.now();
+    // Gradient value is the total pixel brightness
+    const diskEdgeFinder = new EdgeFinder(this.pixels, ({r, g, b}) => r + g + b);
+    diskEdgeFinder.findEdges();
+    this.edges = diskEdgeFinder.edges;
     console.log(`findEdges: ${Date.now() - startTime}`);
+
+
+    console.log(this.edges)
+
+    startTime = Date.now();
+    this.leafDiskEdges = structuredClone(diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
+    this.findNecroticBoundaries();
+
+    console.log(`findNecroticBoundaries: ${Date.now() - startTime}`);
 
 
     console.log('this.pixels:');
@@ -50,7 +86,7 @@ class LeafDiskImage {
 
   // Return a base64 data url encoding of the gradients converted to a visualization
   getGradientImage() {
-    return this.pixelsToBase64(({row, col, gradient, isEdge, edgeIndex}) => {
+    return pixelsToBase64(this.pixels, ({row, col, gradient, isEdge, edgeIndex}) => {
       // Set the pixel color to the strength of the gradient
       // Edges will appear white and everything else black
       let color = {r: gradient/3, g: gradient/3, b: gradient/3};
@@ -67,55 +103,40 @@ class LeafDiskImage {
   /*
    * Helper methods
    */
-  // Load the file contents as a base64 data url
-  getFileContentsAsBase64() {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      // Set the callback to resolve with the base64 file contents
-      reader.onloadend = () => resolve(reader.result);
-      // Read the file, which triggers the callback when it's done
-      reader.readAsDataURL(this.file);
-    });
+
+  // Determine if an edge is a circle based on the ratio of height/width and the number of pixels
+  isEdgeCircular({height, width, coordinates}) {
+    const isSquare = this.isWithinTolerance(height, width, 0.1);
+    const isCorrectPerimeter = coordinates.length*0.9 > this.expectedLeafDiskPerimeter;
+    const isCorrectDiameter = this.isWithinTolerance(this.expectedLeafDiskDiameter, width, 0.1);
+
+    return isSquare && isCorrectPerimeter && isCorrectDiameter;
   }
 
-  // Convert the base64 data url file contents to a 2D array of pixels with rgb values
-  base64ToPixels(base64) {
-    return new Promise((resolve) => {
-      const img = new Image();
+  // Determine if a number is within the given tolerance of another number
+  isWithinTolerance(correctNum, num, tolerance) {
+    return Math.abs(correctNum - num) < correctNum*tolerance;
+  }
 
-      // Set the callback to convert the image to pixels
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.height = img.height;
-        canvas.width = img.width;
+  findNecroticBoundaries() {
+    for (const edge of this.leafDiskEdges) {
+      // Find the boundaries
+    }
+  }
+}
 
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
 
-        // imageData.data is a flattened array of all the pixel values
-        // 4 values represents 1 pixel (r, g, b, a)
-        const imageData = ctx.getImageData(0, 0, img.width, img.height);
-        // Initialize pixels based on height and width
-        const pixels = Array(imageData.height);
-
-        for (let row = 0; row < imageData.height; row++) {
-          pixels[row] = [];
-
-          for (let col = 0; col < imageData.width; col++) {
-            const pixelNum = row*imageData.width + col;
-            const data = imageData.data.slice(pixelNum*4, pixelNum*4 + 3);
-
-            pixels[row][col] = {r: data[0], g: data[1], b: data[2]};
-          }
-        }
-
-        // Resolve the promise with the pixels array
-        resolve(pixels);
-      };
-
-      // Load the image and trigger the onload function
-      img.src = base64;
-    });
+/* ============================================== */
+// A class to handle edge finding processes
+/* ============================================== */
+class EdgeFinder {
+  // Takes in a 2D array of pixels and a function used to calculate the gradient value
+  constructor(pixels, calculatePixelValue) {
+    this.pixels = pixels;
+    this.height = this.pixels.length;
+    this.width = this.pixels[0].length;
+    this.calculatePixelValue = calculatePixelValue;
+    this.strongGradientCoordinates = [];
   }
 
   // Find all edges in the file using the Canny edge detection algorithm
@@ -124,44 +145,42 @@ class LeafDiskImage {
     // Skip smoothing step, scanned images are relatively low noise
 
     // Calculate the gradient and angle for each pixel
-    this.forEachPixel(this.setGradientValues);
+    // Use .bind(this) so that the function has the context when it is called
+    let startTime = Date.now();
+    forEachRowCol(0, this.height-1, 0, this.width-1, this.setGradientValues.bind(this));
+    console.log(`set gradients: ${Date.now() - startTime}`);
 
     // If the pixel gradient is not the maximum of the 3 in line with the gradient direction, set it to 0
     // This ensures that we only have one pixel per edge
     // Thresholding done when setting the pixel gradients to improve performance
+    startTime = Date.now();
     for (const {row, col} of this.strongGradientCoordinates) {
-      if (!this.isMaxGradient(row, col)) {
+      if (this.isMaxGradient(row, col)) {
+        this.pixels[row][col].isEdge = true;
+      } else {
         this.pixels[row][col].gradient = 0;
         this.pixels[row][col].isEdge = false;
-      } else {
-        this.pixels[row][col].isEdge = true;
       }
     }
+    console.log(`mark edges: ${Date.now() - startTime}`);
 
     // Create the coordinate arrays for all the connected edges
+    startTime = Date.now();
     this.groupContinuousEdges();
+    console.log(`groupContinuousEdges: ${Date.now() - startTime}`);
 
     // console.log(this.edges.filter(e => e.coordinates.length > 500))
     // console.log(this.edges.filter(e => e.coordinates.length > 500).map(e => this.isEdgeCircular(e)))
   }
 
-  // Calls the function with row and col for each pixel in the image
-  forEachPixel(doSomething) {
-    for (let row = 0; row < this.pixels.length; row++) {
-      for (let col = 0; col < this.pixels[row].length; col++) {
-        // Use .bind(this) because otherwise the passed in function does not have the context
-        doSomething.bind(this)(row, col);
-      }
-    }
-  }
 
   // Calculate and set the gradient and angle (converted to degrees and rounded to the nearest 45)
   setGradientValues(row, col) {
-    const sumTop = this.sumPixelBrightnesses([row-1, row-1], [col-1, col+1]);
-    const sumBottom = this.sumPixelBrightnesses([row+1, row+1], [col-1, col+1]);
+    const sumTop = this.sumPixelValues(row-1, row-1, col-1, col+1);
+    const sumBottom = this.sumPixelValues(row+1, row+1, col-1, col+1);
     const verticalGradient = sumTop - sumBottom;
-    const sumLeft = this.sumPixelBrightnesses([row-1, row+1], [col-1, col-1]);
-    const sumRight = this.sumPixelBrightnesses([row-1, row+1], [col+1, col+1]);
+    const sumLeft = this.sumPixelValues(row-1, row+1, col-1, col-1);
+    const sumRight = this.sumPixelValues(row-1, row+1, col+1, col+1);
     const horizontalGradient = sumLeft - sumRight;
     const totalGradient = Math.sqrt(verticalGradient**2 + horizontalGradient**2);
 
@@ -179,38 +198,26 @@ class LeafDiskImage {
     }
   }
 
-  // Return the total brightness value for a pixel
-  pixelBrightness(row, col) {
-    return this.pixels[row][col].r + this.pixels[row][col].g + this.pixels[row][col].b;
-  }
-
   // Get the sum of all pixel brightnesses for the given ranges (inclusive)
-  // If the range goes out of bounds, it'll the pixel on the edge
-  sumPixelBrightnesses(rowIndices, colIndices) {
-    let sum = 0;
-
-    for (let row = rowIndices[0]; row <= rowIndices[1]; row++) {
-      for (let col = colIndices[0]; col <= colIndices[1]; col++) {
-        let currentRow = row;
-        let currentCol = col;
-
-        if (row < 0) {
-          currentRow = 0;
-        } else if (row >= this.pixels.length) {
-          currentRow = this.pixels.length-1;
-        }
-
-        if (col < 0) {
-          currentCol = 0;
-        } else if (col >= this.pixels[0].length) {
-          currentCol = this.pixels[0].length-1;
-        }
-
-        sum += this.pixelBrightness(currentRow, currentCol);
+  // If the range goes out of bounds, it'll use the pixel on the edge
+  sumPixelValues(startRow, endRow, startCol, endCol) {
+    const values = forEachRowCol(startRow, endRow, startCol, endCol, (row, col) => {
+      if (row < 0) {
+        row = 0;
+      } else if (row >= this.height) {
+        row = this.height-1;
       }
-    }
 
-    return sum;
+      if (col < 0) {
+        col = 0;
+      } else if (col >= this.width) {
+        col = this.width-1;
+      }
+
+      return this.calculatePixelValue(this.pixels[row][col]);
+    });
+
+    return values.reduce((sum, gradient) => sum + gradient, 0);
   }
 
   // Check if the pixel at row, col has a larger gradient value than its neighbors in line with the gradient direction
@@ -287,45 +294,86 @@ class LeafDiskImage {
       return pixelList;
     }
   }
+}
 
-  // Determine if an edge is a circle based on the ratio of height/width and the number of pixels
-  isEdgeCircular({height, width, coordinates}) {
-    const isSquare = this.isWithinTolerance(height, width, 0.1);
-    const isCorrectPerimeter = coordinates.length*0.9 > this.expectedLeafDiskPerimeter;
-    const isCorrectDiameter = this.isWithinTolerance(this.expectedLeafDiskDiameter, width, 0.1);
 
-    return isSquare && isCorrectPerimeter && isCorrectDiameter;
-  }
+/* ============================================== */
+// Image conversion functions
+/* ============================================== */
+// Load the file contents as a base64 data url
+function getFileContentsAsBase64(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    // Set the callback to resolve with the base64 file contents
+    reader.onloadend = () => resolve(reader.result);
+    // Read the file, which triggers the callback when it's done
+    reader.readAsDataURL(file);
+  });
+}
 
-  // Determine if a number is within the given tolerance of another number
-  isWithinTolerance(correctNum, num, tolerance) {
-    return Math.abs(correctNum - num) < correctNum*tolerance;
-  }
+// Convert the base64 data url file contents to a 2D array of pixels with rgb values
+function base64ToPixels(base64) {
+  return new Promise((resolve) => {
+    const img = new Image();
 
-  // Converts the pixels into a base64 data URL
-  // Takes a transformation that returns an object with keys r, g, and b
-  pixelsToBase64(transformation) {
-    const height = this.pixels.length;
-    const width = this.pixels[0].length;
-    const imageData = new ImageData(width, height);
+    // Set the callback to convert the image to pixels
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.height = img.height;
+      canvas.width = img.width;
 
-    // Populate imageData with pixel values
-    this.forEachPixel((row, col) => {
-      const {r, g, b} = transformation(this.pixels[row][col]);
-      const pixelNum = row*width + col;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
 
-      imageData.data[pixelNum*4] = r;
-      imageData.data[pixelNum*4 + 1] = g;
-      imageData.data[pixelNum*4 + 2] = b;
-      imageData.data[pixelNum*4 + 3] = 255; // Alpha
-    });
+      // imageData.data is a flattened array of all the pixel values
+      // 4 values represents 1 pixel (r, g, b, a)
+      const imageData = ctx.getImageData(0, 0, img.width, img.height);
+      // Initialize pixels based on height and width
+      const pixels = Array(imageData.height);
 
-    const canvas = document.createElement('canvas');
-    canvas.height = imageData.height;
-    canvas.width = imageData.width;
-    const ctx = canvas.getContext('2d');
-    ctx.putImageData(imageData, 0, 0);
+      for (let row = 0; row < imageData.height; row++) {
+        pixels[row] = [];
 
-    return canvas.toDataURL();
-  }
+        for (let col = 0; col < imageData.width; col++) {
+          const pixelNum = row*imageData.width + col;
+          const data = imageData.data.slice(pixelNum*4, pixelNum*4 + 3);
+
+          pixels[row][col] = {r: data[0], g: data[1], b: data[2]};
+        }
+      }
+
+      // Resolve the promise with the pixels array
+      resolve(pixels);
+    };
+
+    // Load the image and trigger the onload function
+    img.src = base64;
+  });
+}
+
+// Converts the pixels into a base64 data URL
+// Takes a transformation that returns an object with keys r, g, and b
+function pixelsToBase64(pixels, transformation) {
+  const height = pixels.length;
+  const width = pixels[0].length;
+  const imageData = new ImageData(width, height);
+
+  // Populate imageData with pixel values
+  forEachRowCol(0, pixels.length-1, 0, pixels[0].length-1, (row, col) => {
+    const {r, g, b} = transformation(pixels[row][col]);
+    const pixelNum = row*width + col;
+
+    imageData.data[pixelNum*4] = r;
+    imageData.data[pixelNum*4 + 1] = g;
+    imageData.data[pixelNum*4 + 2] = b;
+    imageData.data[pixelNum*4 + 3] = 255; // Alpha
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.height = imageData.height;
+  canvas.width = imageData.width;
+  const ctx = canvas.getContext('2d');
+  ctx.putImageData(imageData, 0, 0);
+
+  return canvas.toDataURL();
 }
