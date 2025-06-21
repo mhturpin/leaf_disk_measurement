@@ -52,18 +52,18 @@ class LeafDiskImage {
 
   // Do all the image processing from loading the file to determining necrotic areas
   async processImage() {
-    let startTime = Date.now();
+    /* Load the image into the pixel array */
     let fileBase64 = await getFileContentsAsBase64(this.file);
     document.querySelector('img#originalImage').src = fileBase64;
     this.pixels = await base64ToPixels(fileBase64);
 
-    // Set expected sizes for the leaf disks
+    /* Set expected sizes for the leaf disks */
     // Assume the image is a 3" wide index card and the leaf disks are 5/8"
     this.expectedLeafDiskDiameter = (this.pixels[0].length/3)*5/8;
     this.expectedLeafDiskPerimeter = Math.PI*this.expectedLeafDiskDiameter;
-    console.log(`Load image: ${Date.now() - startTime}`);
 
-    startTime = Date.now();
+    /* Find the edges */
+    let startTime = Date.now();
     // Gradient value is the total pixel brightness
     const diskEdgeFinder = new EdgeFinder(this.pixels, ({r, g, b}) => r + g + b);
     diskEdgeFinder.findEdges();
@@ -71,8 +71,7 @@ class LeafDiskImage {
     console.log(`findEdges: ${Date.now() - startTime}`);
 
 
-    console.log(this.edges)
-
+    /* Find the necrotic boundaries */
     startTime = Date.now();
     this.leafDiskEdges = structuredClone(diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
     this.findNecroticBoundaries();
@@ -100,9 +99,9 @@ class LeafDiskImage {
     });
   }
 
-  /*
-   * Helper methods
-   */
+  // ==============
+  // Helper methods
+  // ==============
 
   // Determine if an edge is a circle based on the ratio of height/width and the number of pixels
   isEdgeCircular({height, width, coordinates}) {
@@ -142,18 +141,25 @@ class EdgeFinder {
   // Find all edges in the file using the Canny edge detection algorithm
   // https://en.wikipedia.org/wiki/Canny_edge_detector
   findEdges() {
-    // Skip smoothing step, scanned images are relatively low noise
+    /* Skip smoothing step, scanned images are relatively low noise */
 
-    // Calculate the gradient and angle for each pixel
+    /* Calculate the gradient and angle for each pixel */
+    // Set all the pixel values first so that we aren't recalculating them
+    forEachRowCol(0, this.height-1, 0, this.width-1, (row, col) => {
+      this.pixels[row][col].value = this.calculatePixelValue(this.pixels[row][col]);
+    });
+    // Calculate all sums of three pixels in the horizontal direction to avoid redoing calculations
+    // The sum is saved on the center pixel
+    forEachRowCol(0, this.height-1, 0, this.width-1, (row, col) => {
+      this.pixels[row][col].rowSumOfThree = this.sumPixelValues(row, row, col-1, col+1);
+      this.pixels[row][col].colSumOfThree = this.sumPixelValues(row-1, row+1, col, col);
+    });
     // Use .bind(this) so that the function has the context when it is called
-    let startTime = Date.now();
     forEachRowCol(0, this.height-1, 0, this.width-1, this.setGradientValues.bind(this));
-    console.log(`set gradients: ${Date.now() - startTime}`);
 
-    // If the pixel gradient is not the maximum of the 3 in line with the gradient direction, set it to 0
+    /* If the pixel gradient is not the maximum of the 3 in line with the gradient direction, set it to 0 */
     // This ensures that we only have one pixel per edge
     // Thresholding done when setting the pixel gradients to improve performance
-    startTime = Date.now();
     for (const {row, col} of this.strongGradientCoordinates) {
       if (this.isMaxGradient(row, col)) {
         this.pixels[row][col].isEdge = true;
@@ -162,25 +168,22 @@ class EdgeFinder {
         this.pixels[row][col].isEdge = false;
       }
     }
-    console.log(`mark edges: ${Date.now() - startTime}`);
 
-    // Create the coordinate arrays for all the connected edges
-    startTime = Date.now();
+    /* Create the coordinate arrays for all the connected edges */
     this.groupContinuousEdges();
-    console.log(`groupContinuousEdges: ${Date.now() - startTime}`);
-
-    // console.log(this.edges.filter(e => e.coordinates.length > 500))
-    // console.log(this.edges.filter(e => e.coordinates.length > 500).map(e => this.isEdgeCircular(e)))
   }
 
+  // ==============
+  // Helper methods
+  // ==============
 
   // Calculate and set the gradient and angle (converted to degrees and rounded to the nearest 45)
   setGradientValues(row, col) {
-    const sumTop = this.sumPixelValues(row-1, row-1, col-1, col+1);
-    const sumBottom = this.sumPixelValues(row+1, row+1, col-1, col+1);
+    const sumTop = this.pixels[row-1 < 0 ? 0 : row-1][col].rowSumOfThree;
+    const sumBottom = this.pixels[row+1 < this.height ? row+1 : this.height-1][col].rowSumOfThree;
     const verticalGradient = sumTop - sumBottom;
-    const sumLeft = this.sumPixelValues(row-1, row+1, col-1, col-1);
-    const sumRight = this.sumPixelValues(row-1, row+1, col+1, col+1);
+    const sumLeft = this.pixels[row][col-1 < 0 ? 0 : col-1].colSumOfThree;
+    const sumRight = this.pixels[row][col+1 < this.width ? col+1 : this.width-1].colSumOfThree;
     const horizontalGradient = sumLeft - sumRight;
     const totalGradient = Math.sqrt(verticalGradient**2 + horizontalGradient**2);
 
@@ -214,7 +217,7 @@ class EdgeFinder {
         col = this.width-1;
       }
 
-      return this.calculatePixelValue(this.pixels[row][col]);
+      return this.pixels[row][col].value;
     });
 
     return values.reduce((sum, gradient) => sum + gradient, 0);
