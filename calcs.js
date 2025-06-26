@@ -18,25 +18,11 @@ window.onload = function() {
 
     image = new LeafDiskImage(e.target.files[0]);
     await image.processImage();
-    // document.querySelector('img#highlightedImage').src = image.getEdgeImage();
+    document.querySelector('img#highlightedImage').src = image.getEdgeImage();
+    // document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
 
     console.log(`Total time: ${Date.now() - startTime}`);
   }
-}
-
-// Calls the function with each row and col for the given ranges
-// Indices are inclusive
-function forEachIJ(startI, endI, startJ, endJ, doSomething) {
-  const values = [];
-
-  for (let i = startI; i <= endI; i++) {
-    for (let j = startJ; j <= endJ; j++) {
-      // Use .bind(this) because otherwise the passed in function does not have the context
-      values.push(doSomething(i, j));
-    }
-  }
-
-  return values;
 }
 
 /* ============================================== */
@@ -85,6 +71,25 @@ class LeafDiskImage {
     return this.diskEdgeFinder.getEdgeImage();
   }
 
+  // Return a base64 data url encoding of the found edges converted to a visualization
+  getHighlightedImage() {
+    return pixelsToBase64(this.pixels, ({r, g, b, isLeafDiskEdge, isNecroticEdge}) => {
+      let color = {r: r, g: g, b: b};
+
+      // Mark leaf disk edges black
+      if (isLeafDiskEdge) {
+        color = {r: 0, g: 0, b: 0};
+      }
+
+      // Mark necrotic edges pink
+      // if (isLeafDiskEdge) {
+      //   color = {r: 255, g: 0, b: 255};
+      // }
+
+      return color;
+    });
+  }
+
   // ==============
   // Helper methods
   // ==============
@@ -106,18 +111,22 @@ class LeafDiskImage {
   // Find the edges of the leaf disks
   setLeafDiskEdges() {
     // Gradient value is the total pixel brightness
-    this.diskEdgeFinder = new EdgeFinder(this.pixels, 500, 200, ({r, g, b}) => r + g + b);
+    this.diskEdgeFinder = new EdgeFinder(this.pixels, 500, 300, ({r, g, b}) => r + g + b);
     this.diskEdgeFinder.findEdges(false);
-    this.diskEdgeFinder.edges;
     this.leafDiskEdges = structuredClone(this.diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
+
+    // Mark leaf disk edges so that we can access them easily when creating the highlighted image
+    for (const edge of this.leafDiskEdges) {
+      for (const {row, col} of edge.coordinates) {
+        this.pixels[row][col].isLeafDiskEdge = true;
+      }
+    }
   }
 
   // Find the boundaries of necrotic and live leaf tissue
   setNecroticBoundaries() {
-    this.necroticBoundaries = [];
-
-    for (const edge of this.leafDiskEdges) {
-      const leafDiskPixels = this.pixels.slice(edge.top, edge.bottom+1).map(row => row.slice(edge.left, edge.right+1));
+    for (const leafEdge of this.leafDiskEdges) {
+      const leafDiskPixels = this.pixels.slice(leafEdge.top, leafEdge.bottom+1).map(row => row.slice(leafEdge.left, leafEdge.right+1));
       const boundaryFinder = new EdgeFinder(leafDiskPixels, 500, 200, ({r, g}) => {
         // Pixels are necrotic if red > green
         // Group white background with necrotic so that only the edge between necrotic and live is found
@@ -129,12 +138,14 @@ class LeafDiskImage {
       });
 
       boundaryFinder.findEdges(true);
+      leafEdge.necroticBoundary = boundaryFinder.edges;
 
-      // console.log(boundaryFinder.edges)
-
-      document.querySelector('img#highlightedImage').src = boundaryFinder.getEdgeImage();
-
-      // this.necroticBoundaries.push();
+      // Mark necrotic edges so that we can access them easily when creating the highlighted image
+      for (const edge of boundaryFinder.edges) {
+        for (const {row, col} of edge.coordinates) {
+          this.pixels[row][col].isNecroticEdge = true;
+        }
+      }
     }
   }
 }
@@ -196,9 +207,6 @@ class EdgeFinder {
 
     /* Create the coordinate arrays for all the connected edges */
     this.groupContinuousEdges();
-
-    /* Filter out short edges */
-    this.edges = this.edges.filter((e) => e.coordinates.length > 50);
   }
 
   // Return a base64 data url encoding of the gradients converted to a visualization
@@ -394,6 +402,20 @@ class EdgeFinder {
   }
 }
 
+// Calls the function with each row and col for the given ranges
+// Indices are inclusive
+function forEachIJ(startI, endI, startJ, endJ, doSomething) {
+  const values = [];
+
+  for (let i = startI; i <= endI; i++) {
+    for (let j = startJ; j <= endJ; j++) {
+      // Use .bind(this) because otherwise the passed in function does not have the context
+      values.push(doSomething(i, j));
+    }
+  }
+
+  return values;
+}
 
 /* ============================================== */
 // Image conversion functions
