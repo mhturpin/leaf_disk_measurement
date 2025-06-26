@@ -18,7 +18,7 @@ window.onload = function() {
 
     image = new LeafDiskImage(e.target.files[0]);
     await image.processImage();
-    document.querySelector('img#highlightedImage').src = image.getGradientImage();
+    // document.querySelector('img#highlightedImage').src = image.getEdgeImage();
 
     console.log(`Total time: ${Date.now() - startTime}`);
   }
@@ -26,15 +26,13 @@ window.onload = function() {
 
 // Calls the function with each row and col for the given ranges
 // Indices are inclusive
-function forEachRowCol(startRow, endRow, startCol, endCol, doSomething) {
+function forEachIJ(startI, endI, startJ, endJ, doSomething) {
   const values = [];
 
-  for (let row = startRow; row <= endRow; row++) {
-
-
-    for (let col = startCol; col <= endCol; col++) {
+  for (let i = startI; i <= endI; i++) {
+    for (let j = startJ; j <= endJ; j++) {
       // Use .bind(this) because otherwise the passed in function does not have the context
-      values.push(doSomething(row, col));
+      values.push(doSomething(i, j));
     }
   }
 
@@ -53,9 +51,11 @@ class LeafDiskImage {
   // Do all the image processing from loading the file to determining necrotic areas
   async processImage() {
     /* Load the image into the pixel array */
+    let startTime = Date.now();
     let fileBase64 = await getFileContentsAsBase64(this.file);
     document.querySelector('img#originalImage').src = fileBase64;
     this.pixels = await base64ToPixels(fileBase64);
+    console.log(`Load image: ${Date.now() - startTime}`);
 
     /* Set expected sizes for the leaf disks */
     // Assume the image is a 3" wide index card and the leaf disks are 5/8"
@@ -63,40 +63,26 @@ class LeafDiskImage {
     this.expectedLeafDiskPerimeter = Math.PI*this.expectedLeafDiskDiameter;
 
     /* Find the edges */
-    let startTime = Date.now();
-    // Gradient value is the total pixel brightness
-    const diskEdgeFinder = new EdgeFinder(this.pixels, ({r, g, b}) => r + g + b);
-    diskEdgeFinder.findEdges();
-    this.edges = diskEdgeFinder.edges;
-    console.log(`findEdges: ${Date.now() - startTime}`);
-
+    startTime = Date.now();
+    this.setLeafDiskEdges();
+    console.log(`Find edges: ${Date.now() - startTime}`);
 
     /* Find the necrotic boundaries */
     startTime = Date.now();
-    this.leafDiskEdges = structuredClone(diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
-    this.findNecroticBoundaries();
+    this.setNecroticBoundaries();
 
-    console.log(`findNecroticBoundaries: ${Date.now() - startTime}`);
+    console.log(`setNecroticBoundaries: ${Date.now() - startTime}`);
 
 
-    console.log('this.pixels:');
-    console.log(this.pixels);
+    // console.log('this.leafDiskEdges:');
+    // console.log(this.leafDiskEdges);
+    // console.log('this.pixels:');
+    // console.log(this.pixels);
   }
 
-  // Return a base64 data url encoding of the gradients converted to a visualization
-  getGradientImage() {
-    return pixelsToBase64(this.pixels, ({row, col, gradient, isEdge, edgeIndex}) => {
-      // Set the pixel color to the strength of the gradient
-      // Edges will appear white and everything else black
-      let color = {r: gradient/3, g: gradient/3, b: gradient/3};
-
-      // If the edge is a leaf disk, highlight it
-      if (isEdge && this.isEdgeCircular(this.edges[edgeIndex])) {
-        color = {r: 0, g: 255, b: 0};
-      }
-
-      return color;
-    });
+  // Return a base64 data url encoding of the found edges converted to a visualization
+  getEdgeImage() {
+    return this.diskEdgeFinder.getEdgeImage();
   }
 
   // ==============
@@ -117,9 +103,39 @@ class LeafDiskImage {
     return Math.abs(correctNum - num) < correctNum*tolerance;
   }
 
-  findNecroticBoundaries() {
-    for (const edge of this.leafDiskEdges) {
-      // Find the boundaries
+  // Find the edges of the leaf disks
+  setLeafDiskEdges() {
+    // Gradient value is the total pixel brightness
+    this.diskEdgeFinder = new EdgeFinder(this.pixels, 500, ({r, g, b}) => r + g + b);
+    this.diskEdgeFinder.findEdges(false);
+    this.diskEdgeFinder.edges;
+    this.leafDiskEdges = structuredClone(this.diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
+  }
+
+  // Find the boundaries of necrotic and live leaf tissue
+  setNecroticBoundaries() {
+    this.necroticBoundaries = [];
+
+    for (const edge of [this.leafDiskEdges[0]]) {
+      const leafDiskPixels = this.pixels.slice(edge.top, edge.bottom+1).map(row => row.slice(edge.left, edge.right+1));
+      // Gradient value is the absolute difference between green and red
+      // Necrotic tissue has brighter red than green
+      const boundaryFinder = new EdgeFinder(leafDiskPixels, 500, ({r, g}) => {
+        // Pixels are necrotic if red > green
+        // Group white background with necrotic so that only the edge between necrotic and live is found
+        if (r > g || r + g > 300) {
+          return 255*3;
+        } else {
+          return 0;
+        }
+      });
+      boundaryFinder.findEdges(true);
+
+      // console.log(boundaryFinder.edges)
+
+      // document.querySelector('img#highlightedImage').src = boundaryFinder.getEdgeImage();
+
+      // this.necroticBoundaries.push();
     }
   }
 }
@@ -130,32 +146,43 @@ class LeafDiskImage {
 /* ============================================== */
 class EdgeFinder {
   // Takes in a 2D array of pixels and a function used to calculate the gradient value
-  constructor(pixels, calculatePixelValue) {
-    this.pixels = pixels;
+  constructor(pixels, strongThreshold, calculatePixelValue) {
+    this.pixels = structuredClone(pixels);
     this.height = this.pixels.length;
     this.width = this.pixels[0].length;
     this.calculatePixelValue = calculatePixelValue;
+    this.strongThreshold = strongThreshold;
     this.strongGradientCoordinates = [];
   }
 
   // Find all edges in the file using the Canny edge detection algorithm
   // https://en.wikipedia.org/wiki/Canny_edge_detector
-  findEdges() {
-    /* Skip smoothing step, scanned images are relatively low noise */
-
+  findEdges(useSmoothing) {
     /* Calculate the gradient and angle for each pixel */
     // Set all the pixel values first so that we aren't recalculating them
-    forEachRowCol(0, this.height-1, 0, this.width-1, (row, col) => {
+    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
       this.pixels[row][col].value = this.calculatePixelValue(this.pixels[row][col]);
     });
+
+    // Smooth image if needed
+    if (useSmoothing) {
+      this.smoothImage();
+    }
+
     // Calculate all sums of three pixels in the horizontal direction to avoid redoing calculations
     // The sum is saved on the center pixel
-    forEachRowCol(0, this.height-1, 0, this.width-1, (row, col) => {
+    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
       this.pixels[row][col].rowSumOfThree = this.sumPixelValues(row, row, col-1, col+1);
       this.pixels[row][col].colSumOfThree = this.sumPixelValues(row-1, row+1, col, col);
     });
     // Use .bind(this) so that the function has the context when it is called
-    forEachRowCol(0, this.height-1, 0, this.width-1, this.setGradientValues.bind(this));
+    forEachIJ(0, this.height-1, 0, this.width-1, this.setGradientValues.bind(this));
+
+
+    // document.querySelector('img#highlightedImage').src = this.getValueImage();
+
+
+
 
     /* If the pixel gradient is not the maximum of the 3 in line with the gradient direction, set it to 0 */
     // This ensures that we only have one pixel per edge
@@ -169,28 +196,97 @@ class EdgeFinder {
       }
     }
 
+    document.querySelector('img#highlightedImage').src = this.getEdgeImage();
+
     /* Create the coordinate arrays for all the connected edges */
     this.groupContinuousEdges();
+  }
+
+  // Return a base64 data url encoding of the gradients converted to a visualization
+  // Edges will be white and everything else black
+  getEdgeImage() {
+    return pixelsToBase64(this.pixels, ({gradient}) => {
+      // let color = {r: 0, g: 0, b: 0};
+
+      // if (isEdge) {
+      //   color = {r: 255, g: 255, b: 255};
+      // }
+      let color = {r: gradient/3, g: gradient/3, b: gradient/3};
+
+      return color;
+    });
+  }
+
+  // Return a base64 data url encoding of the gradients converted to a visualization
+  // Edges will be white and everything else black
+  getValueImage() {
+    return pixelsToBase64(this.pixels, ({value}) => {
+      let color = {r: value, g: value, b: value};
+
+      return color;
+    });
   }
 
   // ==============
   // Helper methods
   // ==============
+  // Smooth the image to reduce noise
+  smoothImage() {
+    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
+      const scaledValues = forEachIJ(-2, 2, -2, 2, (i, j) => {
+        const {value} = this.getPixel(row + i, col + j);
+        return this.scaleValue(value, i, j);
+      });
+
+      this.pixels[row][col].value = Math.round(scaledValues.reduce((sum, value) => sum + value, 0));
+    });
+  }
+
+  // Use the gaussian filter to scale the value
+  scaleValue(value, i, j) {
+    const filter = [
+      [2, 4, 5, 4, 2],
+      [4, 9, 12, 9, 4],
+      [5, 12, 15, 12, 5],
+      [4, 9, 12, 9, 4],
+      [2, 4, 5, 4, 2]
+    ];
+    const total = 159;
+
+    return value*filter[i+2][j+2]/total;
+  }
+
+  // Return the pixel, or if the coordinates are out of bounds, return the nearest pixel
+  getPixel(row, col) {
+    if (row < 0) {
+      row = 0;
+    } else if (row >= this.height) {
+      row = this.height-1;
+    }
+
+    if (col < 0) {
+      col = 0;
+    } else if (col >= this.width) {
+      col = this.width-1;
+    }
+
+    return this.pixels[row][col];
+  }
 
   // Calculate and set the gradient and angle (converted to degrees and rounded to the nearest 45)
   setGradientValues(row, col) {
-    const sumTop = this.pixels[row-1 < 0 ? 0 : row-1][col].rowSumOfThree;
-    const sumBottom = this.pixels[row+1 < this.height ? row+1 : this.height-1][col].rowSumOfThree;
+    const sumTop = this.getPixel(row-1, col).rowSumOfThree;
+    const sumBottom = this.getPixel(row+1, col).rowSumOfThree;
     const verticalGradient = sumTop - sumBottom;
-    const sumLeft = this.pixels[row][col-1 < 0 ? 0 : col-1].colSumOfThree;
-    const sumRight = this.pixels[row][col+1 < this.width ? col+1 : this.width-1].colSumOfThree;
+    const sumLeft = this.getPixel(row, col-1).colSumOfThree;
+    const sumRight = this.getPixel(row, col+1).colSumOfThree;
     const horizontalGradient = sumLeft - sumRight;
     const totalGradient = Math.sqrt(verticalGradient**2 + horizontalGradient**2);
 
     // Handle gradient threshold here so we don't have to loop through the entire image in future steps
     // Canny edge detection normally includes a weak edge threshold as well,
     // but that is not needed here because the image will be dark leaves on a white background
-    if (totalGradient > 500) {
+    if (totalGradient > this.strongThreshold) {
       // Add this pixel to the list of strong gradients
       this.strongGradientCoordinates.push({row: row, col: col});
 
@@ -204,20 +300,8 @@ class EdgeFinder {
   // Get the sum of all pixel brightnesses for the given ranges (inclusive)
   // If the range goes out of bounds, it'll use the pixel on the edge
   sumPixelValues(startRow, endRow, startCol, endCol) {
-    const values = forEachRowCol(startRow, endRow, startCol, endCol, (row, col) => {
-      if (row < 0) {
-        row = 0;
-      } else if (row >= this.height) {
-        row = this.height-1;
-      }
-
-      if (col < 0) {
-        col = 0;
-      } else if (col >= this.width) {
-        col = this.width-1;
-      }
-
-      return this.pixels[row][col].value;
+    const values = forEachIJ(startRow, endRow, startCol, endCol, (row, col) => {
+      return this.getPixel(row, col).value;
     });
 
     return values.reduce((sum, gradient) => sum + gradient, 0);
@@ -362,7 +446,7 @@ function pixelsToBase64(pixels, transformation) {
   const imageData = new ImageData(width, height);
 
   // Populate imageData with pixel values
-  forEachRowCol(0, pixels.length-1, 0, pixels[0].length-1, (row, col) => {
+  forEachIJ(0, pixels.length-1, 0, pixels[0].length-1, (row, col) => {
     const {r, g, b} = transformation(pixels[row][col]);
     const pixelNum = row*width + col;
 
