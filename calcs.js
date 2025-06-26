@@ -73,11 +73,16 @@ class LeafDiskImage {
 
   // Return a base64 data url encoding of the found edges converted to a visualization
   getHighlightedImage() {
-    return pixelsToBase64(this.pixels, ({r, g, b, isLeafDiskBox, isNecroticEdge}) => {
+    return pixelsToBase64(this.pixels, ({r, g, b, isLeafDiskBox, isLeafDiskEdge, isNecroticEdge}) => {
       let color = {r: r, g: g, b: b};
 
       // Mark leaf disk edges black
       if (isLeafDiskBox) {
+        color = {r: 0, g: 0, b: 0};
+      }
+
+      // Mark leaf disk edges black
+      if (isLeafDiskEdge) {
         color = {r: 0, g: 0, b: 0};
       }
 
@@ -116,13 +121,18 @@ class LeafDiskImage {
 
     // Mark leaf disk edges so that we can access them easily when creating the highlighted image
     for (const edge of this.leafDiskEdges) {
-      // Top and bottom
+      // The actual edges
+      for (const {row, col} of edge.coordinates) {
+        this.pixels[row][col].isLeafDiskEdge = true;
+      }
+
+      // Top and bottom box
       for (let col = edge.left; col <= edge.right; col++) {
         this.pixels[edge.top][col].isLeafDiskBox = true;
         this.pixels[edge.bottom][col].isLeafDiskBox = true;
       }
 
-      // Left and right
+      // Left and right box
       for (let row = edge.top; row <= edge.bottom; row++) {
         this.pixels[row][edge.left].isLeafDiskBox = true;
         this.pixels[row][edge.right].isLeafDiskBox = true;
@@ -395,8 +405,8 @@ class EdgeFinder {
       // Allow for gaps of 1px in case the edge has a discontinuity
       const pixelList = [{row: row, col: col}];
 
-      for (var i = row-1; i <= row+1; i++) {
-        for (var j = col-1; j <= col+1; j++) {
+      for (var i = row-2; i <= row+2; i++) {
+        for (var j = col-2; j <= col+2; j++) {
           if (this.isUngroupedWeakPixel(i, j)) {
             pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
           }
