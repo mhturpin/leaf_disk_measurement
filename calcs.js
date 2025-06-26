@@ -18,8 +18,8 @@ window.onload = function() {
 
     image = new LeafDiskImage(e.target.files[0]);
     await image.processImage();
-    document.querySelector('img#highlightedImage').src = image.getEdgeImage();
-    // document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
+    // document.querySelector('img#highlightedImage').src = image.getEdgeImage();
+    document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
 
     console.log(`Total time: ${Date.now() - startTime}`);
   }
@@ -73,18 +73,18 @@ class LeafDiskImage {
 
   // Return a base64 data url encoding of the found edges converted to a visualization
   getHighlightedImage() {
-    return pixelsToBase64(this.pixels, ({r, g, b, isLeafDiskEdge, isNecroticEdge}) => {
+    return pixelsToBase64(this.pixels, ({r, g, b, isLeafDiskBox, isNecroticEdge}) => {
       let color = {r: r, g: g, b: b};
 
       // Mark leaf disk edges black
-      if (isLeafDiskEdge) {
+      if (isLeafDiskBox) {
         color = {r: 0, g: 0, b: 0};
       }
 
       // Mark necrotic edges pink
-      // if (isLeafDiskEdge) {
-      //   color = {r: 255, g: 0, b: 255};
-      // }
+      if (isNecroticEdge) {
+        color = {r: 255, g: 0, b: 255};
+      }
 
       return color;
     });
@@ -117,8 +117,16 @@ class LeafDiskImage {
 
     // Mark leaf disk edges so that we can access them easily when creating the highlighted image
     for (const edge of this.leafDiskEdges) {
-      for (const {row, col} of edge.coordinates) {
-        this.pixels[row][col].isLeafDiskEdge = true;
+      // Top and bottom
+      for (let col = edge.left; col <= edge.right; col++) {
+        this.pixels[edge.top][col].isLeafDiskBox = true;
+        this.pixels[edge.bottom][col].isLeafDiskBox = true;
+      }
+
+      // Left and right
+      for (let row = edge.top; row <= edge.bottom; row++) {
+        this.pixels[row][edge.left].isLeafDiskBox = true;
+        this.pixels[row][edge.right].isLeafDiskBox = true;
       }
     }
   }
@@ -143,7 +151,11 @@ class LeafDiskImage {
       // Mark necrotic edges so that we can access them easily when creating the highlighted image
       for (const edge of boundaryFinder.edges) {
         for (const {row, col} of edge.coordinates) {
-          this.pixels[row][col].isNecroticEdge = true;
+          // The coordinates on the necrotic edge are relative to the leaf disk boundaries
+          const originalRow = leafEdge.top + row;
+          const originalCol = leafEdge.left + col;
+
+          this.pixels[originalRow][originalCol].isNecroticEdge = true;
         }
       }
     }
