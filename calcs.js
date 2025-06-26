@@ -97,10 +97,9 @@ class LeafDiskImage {
   // Determine if an edge is a circle based on the ratio of height/width and the number of pixels
   isEdgeCircular({height, width, coordinates}) {
     const isSquare = this.isWithinTolerance(height, width, 0.1);
-    const isCorrectPerimeter = coordinates.length*0.9 > this.expectedLeafDiskPerimeter;
     const isCorrectDiameter = this.isWithinTolerance(this.expectedLeafDiskDiameter, width, 0.1);
 
-    return isSquare && isCorrectPerimeter && isCorrectDiameter;
+    return isSquare && isCorrectDiameter;
   }
 
   // Determine if a number is within the given tolerance of another number
