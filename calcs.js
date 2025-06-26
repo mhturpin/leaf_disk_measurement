@@ -74,8 +74,8 @@ class LeafDiskImage {
     console.log(`setNecroticBoundaries: ${Date.now() - startTime}`);
 
 
-    // console.log('this.leafDiskEdges:');
-    // console.log(this.leafDiskEdges);
+    console.log('this.leafDiskEdges:');
+    console.log(this.leafDiskEdges);
     // console.log('this.pixels:');
     // console.log(this.pixels);
   }
@@ -106,7 +106,7 @@ class LeafDiskImage {
   // Find the edges of the leaf disks
   setLeafDiskEdges() {
     // Gradient value is the total pixel brightness
-    this.diskEdgeFinder = new EdgeFinder(this.pixels, 500, ({r, g, b}) => r + g + b);
+    this.diskEdgeFinder = new EdgeFinder(this.pixels, 500, 200, ({r, g, b}) => r + g + b);
     this.diskEdgeFinder.findEdges(false);
     this.diskEdgeFinder.edges;
     this.leafDiskEdges = structuredClone(this.diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
@@ -116,11 +116,9 @@ class LeafDiskImage {
   setNecroticBoundaries() {
     this.necroticBoundaries = [];
 
-    for (const edge of [this.leafDiskEdges[0]]) {
+    for (const edge of this.leafDiskEdges) {
       const leafDiskPixels = this.pixels.slice(edge.top, edge.bottom+1).map(row => row.slice(edge.left, edge.right+1));
-      // Gradient value is the absolute difference between green and red
-      // Necrotic tissue has brighter red than green
-      const boundaryFinder = new EdgeFinder(leafDiskPixels, 500, ({r, g}) => {
+      const boundaryFinder = new EdgeFinder(leafDiskPixels, 500, 200, ({r, g}) => {
         // Pixels are necrotic if red > green
         // Group white background with necrotic so that only the edge between necrotic and live is found
         if (r > g || r + g > 300) {
@@ -129,11 +127,12 @@ class LeafDiskImage {
           return 0;
         }
       });
+
       boundaryFinder.findEdges(true);
 
       // console.log(boundaryFinder.edges)
 
-      // document.querySelector('img#highlightedImage').src = boundaryFinder.getEdgeImage();
+      document.querySelector('img#highlightedImage').src = boundaryFinder.getEdgeImage();
 
       // this.necroticBoundaries.push();
     }
@@ -146,13 +145,15 @@ class LeafDiskImage {
 /* ============================================== */
 class EdgeFinder {
   // Takes in a 2D array of pixels and a function used to calculate the gradient value
-  constructor(pixels, strongThreshold, calculatePixelValue) {
+  constructor(pixels, strongThreshold, weakThreshold, calculatePixelValue) {
     this.pixels = structuredClone(pixels);
     this.height = this.pixels.length;
     this.width = this.pixels[0].length;
     this.calculatePixelValue = calculatePixelValue;
     this.strongThreshold = strongThreshold;
+    this.weakThreshold = weakThreshold;
     this.strongGradientCoordinates = [];
+    this.weakGradientCoordinates = [];
   }
 
   // Find all edges in the file using the Canny edge detection algorithm
@@ -178,40 +179,39 @@ class EdgeFinder {
     // Use .bind(this) so that the function has the context when it is called
     forEachIJ(0, this.height-1, 0, this.width-1, this.setGradientValues.bind(this));
 
-
-    // document.querySelector('img#highlightedImage').src = this.getValueImage();
-
-
-
-
     /* If the pixel gradient is not the maximum of the 3 in line with the gradient direction, set it to 0 */
     // This ensures that we only have one pixel per edge
     // Thresholding done when setting the pixel gradients to improve performance
-    for (const {row, col} of this.strongGradientCoordinates) {
-      if (this.isMaxGradient(row, col)) {
-        this.pixels[row][col].isEdge = true;
-      } else {
+    for (const {row, col} of this.weakGradientCoordinates) {
+      if (!this.isMaxGradient(row, col)) {
         this.pixels[row][col].gradient = 0;
-        this.pixels[row][col].isEdge = false;
       }
     }
 
-    document.querySelector('img#highlightedImage').src = this.getEdgeImage();
+    for (const {row, col} of this.strongGradientCoordinates) {
+      if (!this.isMaxGradient(row, col)) {
+        this.pixels[row][col].gradient = 0;
+      }
+    }
 
     /* Create the coordinate arrays for all the connected edges */
     this.groupContinuousEdges();
+
+    /* Filter out short edges */
+    this.edges = this.edges.filter((e) => e.coordinates.length > 50);
   }
 
   // Return a base64 data url encoding of the gradients converted to a visualization
   // Edges will be white and everything else black
   getEdgeImage() {
-    return pixelsToBase64(this.pixels, ({gradient}) => {
-      // let color = {r: 0, g: 0, b: 0};
+    return pixelsToBase64(this.pixels, ({isGrouped}) => {
+      let color = {r: 0, g: 0, b: 0};
 
-      // if (isEdge) {
-      //   color = {r: 255, g: 255, b: 255};
-      // }
-      let color = {r: gradient/3, g: gradient/3, b: gradient/3};
+      // Only show pixels that have been determined to belong to an edge
+      if (isGrouped) {
+        color = {r: 255, g: 255, b: 255};
+      }
+      // let color = {r: gradient/3, g: gradient/3, b: gradient/3};
 
       return color;
     });
@@ -283,12 +283,14 @@ class EdgeFinder {
     const horizontalGradient = sumLeft - sumRight;
     const totalGradient = Math.sqrt(verticalGradient**2 + horizontalGradient**2);
 
-    // Handle gradient threshold here so we don't have to loop through the entire image in future steps
-    // Canny edge detection normally includes a weak edge threshold as well,
-    // but that is not needed here because the image will be dark leaves on a white background
-    if (totalGradient > this.strongThreshold) {
-      // Add this pixel to the list of strong gradients
-      this.strongGradientCoordinates.push({row: row, col: col});
+    // Only set gradients for pixels above the weakThreshold to save time later
+    if (totalGradient > this.weakThreshold) {
+      // If the pixel is strong or weak, add it to the proper list
+      if (totalGradient > this.strongThreshold) {
+        this.strongGradientCoordinates.push({row: row, col: col});
+      } else if (totalGradient > this.weakThreshold) {
+        this.weakGradientCoordinates.push({row: row, col: col});
+      }
 
       // Set the values on the pixel
       this.pixels[row][col].gradient = totalGradient;
@@ -336,8 +338,8 @@ class EdgeFinder {
     this.edges = [];
 
     for (const {row, col} of this.strongGradientCoordinates) {
-      // If the pixels is part of an edge and has not yet been put in a group, then group it and all the ones connected to it
-      if (this.pixels[row][col].isEdge && !this.pixels[row][col].isGrouped) {
+      // If the pixels has not yet been put in a group and hasn't been zeroed out, then group it and all the ones connected to it
+      if (!this.pixels[row][col].isGrouped && this.pixels[row][col].gradient !== 0) {
         const connectedPixels = this.findConnectedEdgePixels(row, col, this.edges.length);
         const edgeRows = connectedPixels.map(p => p.row);
         const edgeCols = connectedPixels.map(p => p.col);
@@ -359,7 +361,11 @@ class EdgeFinder {
   // Return a coordinate array of all edge pixels connected to the pixel at the given coordinates
   // The edgeIndex parameter identifies which edge the pixel is getting grouped into
   findConnectedEdgePixels(row, col, edgeIndex) {
-    if (this.pixels[row]?.[col] === undefined || !this.pixels[row][col].isEdge || this.pixels[row][col].isGrouped) {
+    if (!this.isUngroupedWeakPixel(row, col)) {
+      console.log(this.pixels[row]?.[col])
+      console.log(this.pixels[row]?.[col] !== undefined)
+      console.log(this.pixels[row][col].gradient > this.strongThreshold)
+      console.log(!this.pixels[row][col].isGrouped)
       throw new Error('findConnectedEdgePixels called with invalid pixel');
     } else {
       // Mark the pixel as grouped so that we don't process it again
@@ -370,9 +376,9 @@ class EdgeFinder {
       // Allow for gaps of 1px in case the edge has a discontinuity
       const pixelList = [{row: row, col: col}];
 
-      for (var i = row-2; i <= row+2; i++) {
-        for (var j = col-2; j <= col+2; j++) {
-          if (this.pixels[i]?.[j] !== undefined && this.pixels[i][j].isEdge && !this.pixels[i][j].isGrouped) {
+      for (var i = row-1; i <= row+1; i++) {
+        for (var j = col-1; j <= col+1; j++) {
+          if (this.isUngroupedWeakPixel(i, j)) {
             pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
           }
         }
@@ -380,6 +386,11 @@ class EdgeFinder {
 
       return pixelList;
     }
+  }
+
+  // Return true if the pixel is valid, is above the weak threshold, and is ungrouped
+  isUngroupedWeakPixel(row, col) {
+    return this.pixels[row]?.[col] !== undefined && this.pixels[row][col].gradient > this.weakThreshold && !this.pixels[row][col].isGrouped;
   }
 }
 
