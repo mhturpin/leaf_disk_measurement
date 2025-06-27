@@ -77,6 +77,16 @@ class LeafDiskImage {
     return pixelsToBase64(this.pixels, (pixel) => {
       let color = {r: pixel.r, g: pixel.g, b: pixel.b};
 
+      if (pixel.r + pixel.g < 300) {
+        if (pixel.r > pixel.g) {
+          color.r *= 2;
+          color.g /= 2;
+        } else {
+          color.g *= 2;
+          color.r /= 2;
+        }
+      }
+
       // Mark leaf disk edges black
       if (pixel.isLeafDiskBox) {
         color = {r: 0, g: 0, b: 0};
