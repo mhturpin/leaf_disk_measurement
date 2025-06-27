@@ -102,9 +102,9 @@ class LeafDiskImage {
         color = {r: 255, g: 0, b: 255};
       }
 
-      // Mark best fit circle blue
+      // Mark best fit circle white
       if (pixel.isBestFitCircle) {
-        color = {r: 0, g: 0, b: 255};
+        color = {r: 255, g: 255, b: 255};
       }
 
       return color;
