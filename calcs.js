@@ -43,10 +43,9 @@ class LeafDiskImage {
     this.pixels = await base64ToPixels(fileBase64);
     console.log(`Load image: ${Date.now() - startTime}`);
 
-    /* Set expected sizes for the leaf disks */
+    /* Set expected size for the leaf disks */
     // Assume the image is a 3" wide index card and the leaf disks are 5/8"
     this.expectedLeafDiskDiameter = (this.pixels[0].length/3)*5/8;
-    this.expectedLeafDiskPerimeter = Math.PI*this.expectedLeafDiskDiameter;
 
     /* Find the edges */
     startTime = Date.now();
@@ -56,6 +55,8 @@ class LeafDiskImage {
     /* Find the necrotic boundaries */
     startTime = Date.now();
     this.setNecroticBoundaries();
+
+    this.setNecroticWidths();
 
     console.log(`setNecroticBoundaries: ${Date.now() - startTime}`);
 
@@ -73,22 +74,27 @@ class LeafDiskImage {
 
   // Return a base64 data url encoding of the found edges converted to a visualization
   getHighlightedImage() {
-    return pixelsToBase64(this.pixels, ({r, g, b, isLeafDiskBox, isLeafDiskEdge, isNecroticEdge}) => {
-      let color = {r: r, g: g, b: b};
+    return pixelsToBase64(this.pixels, (pixel) => {
+      let color = {r: pixel.r, g: pixel.g, b: pixel.b};
 
       // Mark leaf disk edges black
-      if (isLeafDiskBox) {
+      if (pixel.isLeafDiskBox) {
         color = {r: 0, g: 0, b: 0};
       }
 
       // Mark leaf disk edges black
-      if (isLeafDiskEdge) {
+      if (pixel.isLeafDiskEdge) {
         color = {r: 0, g: 0, b: 0};
       }
 
       // Mark necrotic edges pink
-      if (isNecroticEdge) {
+      if (pixel.isNecroticEdge) {
         color = {r: 255, g: 0, b: 255};
+      }
+
+      // Mark best fit circle blue
+      if (pixel.isBestFitCircle) {
+        color = {r: 0, g: 0, b: 255};
       }
 
       return color;
@@ -119,8 +125,13 @@ class LeafDiskImage {
     this.diskEdgeFinder.findEdges(false);
     this.leafDiskEdges = structuredClone(this.diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
 
+    let dimensionSum = 0;
+
     // Mark leaf disk edges so that we can access them easily when creating the highlighted image
     for (const edge of this.leafDiskEdges) {
+      dimensionSum += edge.bottom - edge.top;
+      dimensionSum += edge.right - edge.left;
+
       // The actual edges
       for (const {row, col} of edge.coordinates) {
         this.pixels[row][col].isLeafDiskEdge = true;
@@ -138,12 +149,14 @@ class LeafDiskImage {
         this.pixels[row][edge.right].isLeafDiskBox = true;
       }
     }
+
+    this.avgDiameter = (dimensionSum/2)/this.leafDiskEdges.length;
   }
 
   // Find the boundaries of necrotic and live leaf tissue
   setNecroticBoundaries() {
-    for (const leafEdge of this.leafDiskEdges) {
-      const leafDiskPixels = this.pixels.slice(leafEdge.top, leafEdge.bottom+1).map(row => row.slice(leafEdge.left, leafEdge.right+1));
+    for (const leafDiskEdge of this.leafDiskEdges) {
+      const leafDiskPixels = this.pixels.slice(leafDiskEdge.top, leafDiskEdge.bottom+1).map(row => row.slice(leafDiskEdge.left, leafDiskEdge.right+1));
       const boundaryFinder = new EdgeFinder(leafDiskPixels, 500, 200, ({r, g}) => {
         // Pixels are necrotic if red > green
         // Group white background with necrotic so that only the edge between necrotic and live is found
@@ -155,18 +168,79 @@ class LeafDiskImage {
       });
 
       boundaryFinder.findEdges(true);
-      leafEdge.necroticBoundary = boundaryFinder.edges;
+
+      // Create a list of all necrotic boundary coordinates
+      leafDiskEdge.necroticBoundaryCoordinates = [];
+      boundaryFinder.edges.forEach(e => leafDiskEdge.necroticBoundaryCoordinates.push(...e.coordinates));
 
       // Mark necrotic edges so that we can access them easily when creating the highlighted image
       for (const edge of boundaryFinder.edges) {
         for (const {row, col} of edge.coordinates) {
           // The coordinates on the necrotic edge are relative to the leaf disk boundaries
-          const originalRow = leafEdge.top + row;
-          const originalCol = leafEdge.left + col;
+          const originalRow = leafDiskEdge.top + row;
+          const originalCol = leafDiskEdge.left + col;
 
           this.pixels[originalRow][originalCol].isNecroticEdge = true;
         }
       }
+    }
+  }
+
+  // Find the best fit circles for the necrotic boundaries and set the necrotic width for each one
+  setNecroticWidths() {
+    for (const leafDiskEdge of this.leafDiskEdges) {
+      this.findBestFitCircle(leafDiskEdge);
+    }
+  }
+
+  // Find the cicles that best fit the line between live and necrotic tissue
+  findBestFitCircle(leafDiskEdge) {
+    const centerRow = (leafDiskEdge.top + leafDiskEdge.bottom)/2;
+    const centerCol = (leafDiskEdge.left + leafDiskEdge.right)/2;
+    const distances = {};
+
+    for (const {row, col} of leafDiskEdge.necroticBoundaryCoordinates) {
+      const pixelDistance = Math.round(this.distance(leafDiskEdge.top + row, leafDiskEdge.left + col, centerRow, centerCol));
+
+      if (distances[pixelDistance] === undefined) {
+        distances[pixelDistance] = 1;
+      } else {
+        distances[pixelDistance] += 1;
+      }
+    }
+
+    let maxCount = 0;
+    let mostCommonDistance = 0;
+
+    for (const [key, value] of Object.entries(distances)) {
+      if (maxCount < value) {
+        maxCount = value;
+        mostCommonDistance = key;
+      }
+    }
+
+    leafDiskEdge.liveRadius = mostCommonDistance;
+    leafDiskEdge.necroticWidth = this.avgDiameter/2 - leafDiskEdge.liveRadius;
+
+    // Set the best fit circle for the highlighted image
+    this.setBestFitCircle(leafDiskEdge.liveRadius, centerRow, centerCol);
+  }
+
+  // Calculate the distance between two points
+  distance(row1, col1, row2, col2) {
+    return Math.sqrt((row1 - row2)**2 + (col1 - col2)**2);
+  }
+
+  // Mark the best fit circle with radius r and center row, col
+  setBestFitCircle(r, centerRow, centerCol) {
+    const steps = 1000;
+    const circlePixels = [];
+
+    for (var i = 0; i < steps; i++) {
+      const row = Math.round(centerRow + r*Math.sin(2*Math.PI*i/steps));
+      const col = Math.round(centerCol + r*Math.cos(2*Math.PI*i/steps));
+
+      this.pixels[row][col].isBestFitCircle = true;
     }
   }
 }
