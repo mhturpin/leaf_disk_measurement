@@ -274,7 +274,7 @@ class EdgeFinder {
 
   // Find all edges in the file using the Canny edge detection algorithm
   // https://en.wikipedia.org/wiki/Canny_edge_detector
-  findEdges(useSmoothing) {
+  findEdges(useOutlierSuppression) {
     /* Calculate the gradient and angle for each pixel */
     // Set all the pixel values first so that we aren't recalculating them
     forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
@@ -282,8 +282,8 @@ class EdgeFinder {
     });
 
     // Smooth image if needed
-    if (useSmoothing) {
-      this.smoothImage();
+    if (useOutlierSuppression) {
+      this.suppressOutliers();
     }
 
     // Calculate all sums of three pixels in the horizontal direction to avoid redoing calculations
@@ -334,7 +334,7 @@ class EdgeFinder {
   // Edges will be white and everything else black
   getValueImage() {
     return pixelsToBase64(this.pixels, ({value}) => {
-      let color = {r: value, g: value, b: value};
+      let color = {r: value/3, g: value/3, b: value/3};
 
       return color;
     });
@@ -352,6 +352,18 @@ class EdgeFinder {
       });
 
       this.pixels[row][col].value = Math.round(scaledValues.reduce((sum, value) => sum + value, 0));
+    });
+  }
+
+  // Set pixel value to the max value if the majority of pixels around it also have a high value
+  suppressOutliers() {
+    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
+      const maxValue = 255*3;
+      const neighborValues = forEachIJ(-2, 2, -2, 2, (i, j) => this.getPixel(row + i, col + j).value);
+
+      if (this.pixels[row][col].value === 0 && neighborValues.filter(v => v === maxValue).length > 12) {
+        this.pixels[row][col].value = maxValue;
+      }
     });
   }
 
