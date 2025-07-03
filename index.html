@@ -7,32 +7,14 @@
   <body>
     <h1>Process Leaf Disk Image</h1>
     <div>
+      <p>
+        To use this program, upload an image that is 3" wide with leaf disks that are 5/8". The program uses these values to determine what is a leaf disk and what isn't. There is more information about how it works at the bottom of the page. If you run into any issues, such the circle being in the wrong location, leaf disks not being identified, or rows not grouping properly, please let me know. Thank you!
+      </p>
       <label for="imageUpload">Choose an image:</label>
       <input type="file" id="imageUpload" name="imageUpload" accept="image/*">
     </div>
     <div>
-      <label for="diskDiameter">Disk diameter (mm):</label>
-      <input type="text" id="diskDiameter" name="diskDiameter" value="15.875">
-    </div>
-    <div>
-      <label for="hoursSoaked">Number of hours soaked:</label>
-      <input type="number" id="hoursSoaked" name="hoursSoaked" value="23">
-    </div>
-    <div>
-      <button id="calculate">Recalculate</button>
       <a id="dataCsv"><button>Download data CSV</button></a>
-    </div>
-    <div>
-      <p>
-        About the highlighted image:
-        <ul>
-          <li>The black outlines indicate what portions of the image were identified as leaf disks.</li>
-          <li>The solid black squares in the corners indicate which row the leaf disk got grouped into. All leaf disks in the same row have the same markings.</li>
-          <li>The pixels identified as necrotic have been tinted red, and the live pixels have been tinted green.</li>
-          <li>The pink circle is what the program determined to be the best fit circle for the line between necrotic and living tissue.</li>
-        </ul>
-        If you run into any issues, such the circle being in the wrong location, leaf disks not being identified properly, or rows not grouping properly, please let me know. Thank you!
-      </p>
     </div>
 
     <div style="position: relative">
@@ -50,20 +32,9 @@
     </div>
 
     <div>
-      <h2>Necrotic Area Linear Regression</h2>
-      <h3>Pixel count method</h3>
-      <div id="susceptibilityGraphAreaPixels" style="position: relative; display: inline-block; height: 300px; width: 500px; margin: 20px"></div>
-      <div id="linearRegressionAreaPixels" style="display: inline-block; vertical-align: top">
-        <p>Slope:</p>
-        <p class="slope"></p>
-        <p>y Intercept:</p>
-        <p class="yIntercept"></p>
-        <p>R Squared:</p>
-        <p class="rSquared"></p>
-      </div>
-      <h3>Circle method</h3>
-      <div id="susceptibilityGraphAreaCircle" style="position: relative; display: inline-block; height: 300px; width: 500px; margin: 20px"></div>
-      <div id="linearRegressionAreaCircle" style="display: inline-block; vertical-align: top">
+      <h2>Necrotic Width Percentage Linear Regression</h2>
+      <div id="susceptibilityGraphWidth" style="position: relative; display: inline-block; height: 300px; width: 500px; margin: 20px"></div>
+      <div id="linearRegressionWidth" style="display: inline-block; vertical-align: top">
         <p>Slope:</p>
         <p class="slope"></p>
         <p>y Intercept:</p>
@@ -74,16 +45,30 @@
     </div>
 
     <div>
-      <h2>Necrotic Width Linear Regression</h2>
-      <div id="susceptibilityGraphWidth" style="position: relative; display: inline-block; height: 300px; width: 500px; margin: 20px"></div>
-      <div id="linearRegressionWidth" style="display: inline-block; vertical-align: top">
-        <p>Slope:</p>
-        <p class="slope"></p>
-        <p>y Intercept:</p>
-        <p class="yIntercept"></p>
-        <p>R Squared:</p>
-        <p class="rSquared"></p>
-      </div>
+      <p>
+        About the highlighted image:
+        <ul>
+          <li>The black outlines indicate what portions of the image were identified as leaf disks.</li>
+          <li>The solid black squares in the corners indicate which row the leaf disk got grouped into. All leaf disks in the same row have the same markings.</li>
+          <li>The necrotic pixels have been tinted red, and the live pixels have been tinted green.</li>
+          <li>The white circle is what the program determined to be the best fit circle for the line between live and necrotic tissue.</li>
+          <li>The pink pixels are what the program determined to be the edge between live an necrotic tissue.</li>
+        </ul>
+      </p>
+      <p>
+
+        What the algorithm does:
+        <ol>
+          <li>Extract the pixel data from the uploaded image.</li>
+          <li>Find all the connected light/dark edges in the images using my implementation of the <a href="https://en.wikipedia.org/wiki/Canny_edge_detector">Canny edge detector</a>.</li>
+          <li>Determine what is a leaf disk based on if the maximum left/right/top/bottom of the connected edge form roughly a square and are approximately the right diameter.</li>
+          <li>Calculate the average diameter of the leaf disks in pixels. This will be used later and should be more accurate than using the width of the scanned image as the reference.</li>
+          <li>Find the necrotic boundary for each leaf disk. Use the edge detector, but with the value as high if r > g and for the background, otherwise low. Since the r > g filter can be noisy, set any "live" pixels to "necrotic" if the pixels around them are mostly necrotic before doing the edge detection.</li>
+          <li>Find the best fit circles for the necrotic boundaries. The best fit circle is the most common edge pixel distance from the center of the disk.</li>
+          <li>Calculate the necrotic width.</li>
+          <li>Display the highlighted image.</li>
+        </ol>
+      </p>
     </div>
   </body>
 </html>

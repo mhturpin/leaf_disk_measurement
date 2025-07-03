@@ -55,9 +55,7 @@ class LeafDiskImage {
     /* Find the necrotic boundaries */
     startTime = Date.now();
     this.setNecroticBoundaries();
-
     this.setNecroticWidths();
-
     console.log(`setNecroticBoundaries: ${Date.now() - startTime}`);
 
 
@@ -160,7 +158,7 @@ class LeafDiskImage {
       }
     }
 
-    this.avgDiameter = (dimensionSum/2)/this.leafDiskEdges.length;
+    this.avgRadius = (dimensionSum/4)/this.leafDiskEdges.length;
   }
 
   // Find the boundaries of necrotic and live leaf tissue
@@ -229,8 +227,9 @@ class LeafDiskImage {
       }
     }
 
-    leafDiskEdge.liveRadius = mostCommonDistance;
-    leafDiskEdge.necroticWidth = this.avgDiameter/2 - leafDiskEdge.liveRadius;
+    leafDiskEdge.liveRadius = parseInt(mostCommonDistance);
+    leafDiskEdge.necroticWidth = this.avgRadius - leafDiskEdge.liveRadius;
+    leafDiskEdge.necroticWidthPercentage = Math.round(100*leafDiskEdge.necroticWidth/this.avgRadius);
 
     // Set the best fit circle for the highlighted image
     this.setBestFitCircle(leafDiskEdge.liveRadius, centerRow, centerCol);
@@ -281,7 +280,7 @@ class EdgeFinder {
       this.pixels[row][col].value = this.calculatePixelValue(this.pixels[row][col]);
     });
 
-    // Smooth image if needed
+    // Suppress live pixels within the necrotic area to help with circle finding
     if (useOutlierSuppression) {
       this.suppressOutliers();
     }
@@ -355,18 +354,6 @@ class EdgeFinder {
     });
   }
 
-  // Set pixel value to the max value if the majority of pixels around it also have a high value
-  suppressOutliers() {
-    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
-      const maxValue = 255*3;
-      const neighborValues = forEachIJ(-2, 2, -2, 2, (i, j) => this.getPixel(row + i, col + j).value);
-
-      if (this.pixels[row][col].value === 0 && neighborValues.filter(v => v === maxValue).length > 12) {
-        this.pixels[row][col].value = maxValue;
-      }
-    });
-  }
-
   // Use the gaussian filter to scale the value
   scaleValue(value, i, j) {
     const filter = [
@@ -379,6 +366,18 @@ class EdgeFinder {
     const total = 159;
 
     return value*filter[i+2][j+2]/total;
+  }
+
+  // Set pixel value to the max value if the majority of pixels around it also have a high value
+  suppressOutliers() {
+    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
+      const maxValue = 255*3;
+      const neighborValues = forEachIJ(-2, 2, -2, 2, (i, j) => this.getPixel(row + i, col + j).value);
+
+      if (this.pixels[row][col].value === 0 && neighborValues.filter(v => v === maxValue).length > 12) {
+        this.pixels[row][col].value = maxValue;
+      }
+    });
   }
 
   // Return the pixel, or if the coordinates are out of bounds, return the nearest pixel
