@@ -16,10 +16,17 @@ window.onload = function() {
   document.querySelector('input#imageUpload').onchange = async (e) => {
     const startTime = Date.now();
 
+    // Process image
     image = new LeafDiskImage(e.target.files[0]);
     await image.processImage();
+
+    // Show highlighted image
     // document.querySelector('img#highlightedImage').src = image.getEdgeImage();
     document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
+
+    // Set CSV files for download
+    image.createDiskDataCsv('diskDataCsv');
+    image.createRowDataCsv('rowDataCsv');
 
     console.log(`Total time: ${Date.now() - startTime}`);
   }
@@ -105,8 +112,39 @@ class LeafDiskImage {
         color = {r: 255, g: 255, b: 255};
       }
 
+      // Mark the row markers black
+      if (pixel.isRowMarker) {
+        color = {r: 0, g: 0, b: 0};
+      }
+
       return color;
     });
+  }
+
+  // Create a csv of the individual leaf disk data and add it to the download button
+  createDiskDataCsv(downloadLinkId) {
+    const data = ['Necrotic width percentage,Necrotic width,Live radius,Top index,Left index,Right index,Bottom index'];
+
+    for (const edge of this.leafDiskEdges) {
+      data.push([edge.necroticWidthPercentage, edge.necroticWidth.toFixed(2), edge.liveRadius, edge.top, edge.left, edge.right, edge.bottom].join(','));
+    }
+
+    this.setCsvLink(downloadLinkId, 'leaf_disk_data.csv', data);
+  }
+
+  // Create a csv of the average necrotic width row data and add it to the download button
+  createRowDataCsv(downloadLinkId) {
+    const data = ['Row,Avg necrotic width percentage, Avg necrotic width,Avg live radius'];
+
+    this.rows.forEach((row, i) => {
+      const avgNecroticWidthPercentage = average(row.map(e => e.necroticWidthPercentage)).toFixed(2);
+      const avgNecroticWidth = average(row.map(e => e.necroticWidth)).toFixed(2);
+      const avgLiveRadius = average(row.map(e => e.liveRadius)).toFixed(2);
+
+      data.push([i, avgNecroticWidthPercentage, avgNecroticWidth, avgLiveRadius].join(','));
+    });
+
+    this.setCsvLink(downloadLinkId, 'row_data.csv', data);
   }
 
   // ==============
@@ -133,9 +171,12 @@ class LeafDiskImage {
     this.diskEdgeFinder.findEdges(false);
     this.leafDiskEdges = structuredClone(this.diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
 
+    // Group leaf disks into rows
+    this.setLeafDiskRows();
+
+    // Mark leaf disk edges so that we can access them easily when creating the highlighted image and find the average radius
     let dimensionSum = 0;
 
-    // Mark leaf disk edges so that we can access them easily when creating the highlighted image
     for (const edge of this.leafDiskEdges) {
       dimensionSum += edge.bottom - edge.top;
       dimensionSum += edge.right - edge.left;
@@ -159,6 +200,72 @@ class LeafDiskImage {
     }
 
     this.avgRadius = (dimensionSum/4)/this.leafDiskEdges.length;
+  }
+
+  setLeafDiskRows() {
+    this.rows = [];
+
+    for (const edge of this.leafDiskEdges) {
+      let edgeRowAssigned = false;
+
+      this.rows.forEach((row, i) => {
+        const edgeVerticalMiddle = (edge.top + edge.bottom)/2;
+
+        if (!edgeRowAssigned && row[0].top < edgeVerticalMiddle && row[0].bottom > edgeVerticalMiddle) {
+          edgeRowAssigned = true;
+          edge.rowGroup = i;
+          row.push(edge);
+        }
+      });
+
+      // Create a new row if it didn't match any existing ones
+      if (!edgeRowAssigned) {
+        edge.rowGroup = this.rows.length;
+        this.rows.push([edge]);
+      }
+    }
+
+    // Label the row marker pixels for use in the highlighted image
+    this.labelRowGroups();
+  }
+
+  // Add corner markers to each blob to indicate which row it got grouped into
+  labelRowGroups() {
+    for (const edge of this.leafDiskEdges) {
+      this.setRowMarkerBlocks(edge, edge.rowGroup + 1);
+    }
+  }
+
+  // Draw the corner blocks for a single blob
+  setRowMarkerBlocks(edge, number) {
+    const blockSize = Math.round((edge.bottom-edge.top)/10);
+
+    // Top left (1s)
+    if (number%2 == 1) {
+      this.setRowMarkerPixels(edge.top, edge.left, blockSize);
+    }
+    // Top right (2s)
+    if (Math.floor(number/2)%2) {
+      this.setRowMarkerPixels(edge.top, edge.right-blockSize, blockSize);
+    }
+    // Bottom left (4s)
+    if (Math.floor(number/4)%2) {
+      this.setRowMarkerPixels(edge.bottom-blockSize, edge.left, blockSize);
+    }
+    // Bottom right (8s)
+    if (Math.floor(number/8)%2) {
+      this.setRowMarkerPixels(edge.bottom-blockSize, edge.right-blockSize, blockSize);
+    }
+  }
+
+  // Set row marker pixels starting at the given coordinates
+  setRowMarkerPixels(startRow, startCol, size) {
+    const endRow = startRow + size;
+    const endCol = startCol + size;
+
+    forEachIJ(startRow, endRow, startCol, endCol, (row, col) => {
+      this.pixels[row][col].isRowMarker = true;
+    });
   }
 
   // Find the boundaries of necrotic and live leaf tissue
@@ -251,6 +358,15 @@ class LeafDiskImage {
 
       this.pixels[row][col].isBestFitCircle = true;
     }
+  }
+
+  // Create a csv and make it the href for the download button identified by id
+  setCsvLink(id, fileName, data) {
+    const file = new Blob([data.join('\n')], {type: 'text/csv'});
+    const a = document.getElementById(id);
+    a.href = URL.createObjectURL(file);
+    a.download = fileName;
+
   }
 }
 
@@ -486,10 +602,6 @@ class EdgeFinder {
   // The edgeIndex parameter identifies which edge the pixel is getting grouped into
   findConnectedEdgePixels(row, col, edgeIndex) {
     if (!this.isUngroupedWeakPixel(row, col)) {
-      console.log(this.pixels[row]?.[col])
-      console.log(this.pixels[row]?.[col] !== undefined)
-      console.log(this.pixels[row][col].gradient > this.strongThreshold)
-      console.log(!this.pixels[row][col].isGrouped)
       throw new Error('findConnectedEdgePixels called with invalid pixel');
     } else {
       // Mark the pixel as grouped so that we don't process it again
@@ -532,6 +644,12 @@ function forEachIJ(startI, endI, startJ, endJ, doSomething) {
 
   return values;
 }
+
+// Average an array of numbers
+function average(array) {
+  return array.reduce((sum, value) => sum + value, 0)/array.length;
+}
+
 
 /* ============================================== */
 // Image conversion functions
