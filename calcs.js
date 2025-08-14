@@ -123,10 +123,19 @@ class LeafDiskImage {
 
   // Create a csv of the individual leaf disk data and add it to the download button
   createDiskDataCsv(downloadLinkId) {
-    const data = ['Necrotic width percentage,Necrotic width,Live radius,Top index,Left index,Right index,Bottom index'];
+    const data = ['Necrotic width percentage,Necrotic width,Live radius,Top index,Left index,Right index,Bottom index,Leaf disk radius'];
 
     for (const edge of this.leafDiskEdges) {
-      data.push([edge.necroticWidthPercentage, edge.necroticWidth.toFixed(2), edge.liveRadius, edge.top, edge.left, edge.right, edge.bottom].join(','));
+      data.push([
+        edge.necroticWidthPercentage.toFixed(4),
+        edge.necroticWidth.toFixed(4),
+        edge.liveRadius.toFixed(4),
+        edge.top,
+        edge.left,
+        edge.right,
+        edge.bottom,
+        this.avgRadius
+      ].join(','));
     }
 
     this.setCsvLink(downloadLinkId, 'leaf_disk_data.csv', data);
@@ -134,14 +143,14 @@ class LeafDiskImage {
 
   // Create a csv of the average necrotic width row data and add it to the download button
   createRowDataCsv(downloadLinkId) {
-    const data = ['Row,Avg necrotic width percentage, Avg necrotic width,Avg live radius'];
+    const data = ['Row,Avg necrotic width percentage,Avg necrotic width,Avg live radius,Leaf disk radius'];
 
     this.rows.forEach((row, i) => {
-      const avgNecroticWidthPercentage = average(row.map(e => e.necroticWidthPercentage)).toFixed(2);
-      const avgNecroticWidth = average(row.map(e => e.necroticWidth)).toFixed(2);
-      const avgLiveRadius = average(row.map(e => e.liveRadius)).toFixed(2);
+      const avgNecroticWidthPercentage = average(row.map(e => e.necroticWidthPercentage)).toFixed(4);
+      const avgNecroticWidth = average(row.map(e => e.necroticWidth)).toFixed(4);
+      const avgLiveRadius = average(row.map(e => e.liveRadius)).toFixed(4);
 
-      data.push([i, avgNecroticWidthPercentage, avgNecroticWidth, avgLiveRadius].join(','));
+      data.push([i, avgNecroticWidthPercentage, avgNecroticWidth, avgLiveRadius, this.avgRadius].join(','));
     });
 
     this.setCsvLink(downloadLinkId, 'row_data.csv', data);
@@ -167,7 +176,7 @@ class LeafDiskImage {
   // Find the edges of the leaf disks
   setLeafDiskEdges() {
     // Gradient value is the total pixel brightness
-    this.diskEdgeFinder = new EdgeFinder(this.pixels, 500, 300, ({r, g, b}) => r + g + b);
+    this.diskEdgeFinder = new EdgeFinder(this.pixels, 500, 300, 2, ({r, g, b}) => r + g + b);
     this.diskEdgeFinder.findEdges(false);
     this.leafDiskEdges = structuredClone(this.diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
 
@@ -272,7 +281,7 @@ class LeafDiskImage {
   setNecroticBoundaries() {
     for (const leafDiskEdge of this.leafDiskEdges) {
       const leafDiskPixels = this.pixels.slice(leafDiskEdge.top, leafDiskEdge.bottom+1).map(row => row.slice(leafDiskEdge.left, leafDiskEdge.right+1));
-      const boundaryFinder = new EdgeFinder(leafDiskPixels, 500, 200, ({r, g}) => {
+      const boundaryFinder = new EdgeFinder(leafDiskPixels, 500, 200, 1, ({r, g}) => {
         // Pixels are necrotic if red > green
         // Group white background with necrotic so that only the edge between necrotic and live is found
         if (r > g || r + g > 300) {
@@ -310,33 +319,49 @@ class LeafDiskImage {
 
   // Find the cicles that best fit the line between live and necrotic tissue
   findBestFitCircle(leafDiskEdge) {
+    // The center of the disk
     const centerRow = (leafDiskEdge.top + leafDiskEdge.bottom)/2;
     const centerCol = (leafDiskEdge.left + leafDiskEdge.right)/2;
-    const distances = {};
 
-    for (const {row, col} of leafDiskEdge.necroticBoundaryCoordinates) {
-      const pixelDistance = Math.round(this.distance(leafDiskEdge.top + row, leafDiskEdge.left + col, centerRow, centerCol));
+    // Create an array of all the distances of necrotic edge pixels from the center
+    const distances = leafDiskEdge.necroticBoundaryCoordinates.map(({row, col}) => this.distance(leafDiskEdge.top + row, leafDiskEdge.left + col, centerRow, centerCol));
+    distances.sort((a, b) => a - b);
 
-      if (distances[pixelDistance] === undefined) {
-        distances[pixelDistance] = 1;
-      } else {
-        distances[pixelDistance] += 1;
+    // Count distances within +/- 1% of each integer
+    const distanceGroups = {};
+    const groupTolerance = Math.round(this.avgRadius*0.01);
+
+    for (const d of distances) {
+      const roundedDistance = Math.round(d);
+      const start = roundedDistance - groupTolerance;
+      const end = roundedDistance + groupTolerance;
+
+      for (let i = start; i <= end; i++) {
+        if (distanceGroups[i] === undefined) {
+          distanceGroups[i] = 1;
+        } else {
+          distanceGroups[i] += 1;
+        }
       }
     }
 
+    // Find the distance group with the most members, this is our base value
+    // The group with the most members will be the best fit circle
     let maxCount = 0;
     let mostCommonDistance = 0;
 
-    for (const [key, value] of Object.entries(distances)) {
+    for (const [key, value] of Object.entries(distanceGroups)) {
       if (maxCount < value) {
         maxCount = value;
-        mostCommonDistance = key;
+        mostCommonDistance = parseInt(key);
       }
     }
 
-    leafDiskEdge.liveRadius = parseInt(mostCommonDistance);
+    // Average all the distances within the group to get a more accurate value
+    const bestFitDistances = distances.filter((d) => d > mostCommonDistance - groupTolerance && d < mostCommonDistance + groupTolerance);
+    leafDiskEdge.liveRadius = average(bestFitDistances);
     leafDiskEdge.necroticWidth = this.avgRadius - leafDiskEdge.liveRadius;
-    leafDiskEdge.necroticWidthPercentage = Math.round(100*leafDiskEdge.necroticWidth/this.avgRadius);
+    leafDiskEdge.necroticWidthPercentage = 100*leafDiskEdge.necroticWidth/this.avgRadius;
 
     // Set the best fit circle for the highlighted image
     this.setBestFitCircle(leafDiskEdge.liveRadius, centerRow, centerCol);
@@ -350,7 +375,6 @@ class LeafDiskImage {
   // Mark the best fit circle with radius r and center row, col
   setBestFitCircle(r, centerRow, centerCol) {
     const steps = 1000;
-    const circlePixels = [];
 
     for (var i = 0; i < steps; i++) {
       const row = Math.round(centerRow + r*Math.sin(2*Math.PI*i/steps));
@@ -376,10 +400,11 @@ class LeafDiskImage {
 /* ============================================== */
 class EdgeFinder {
   // Takes in a 2D array of pixels and a function used to calculate the gradient value
-  constructor(pixels, strongThreshold, weakThreshold, calculatePixelValue) {
+  constructor(pixels, strongThreshold, weakThreshold, edgeGroupingTolerance, calculatePixelValue) {
     this.pixels = structuredClone(pixels);
     this.height = this.pixels.length;
     this.width = this.pixels[0].length;
+    this.edgeGroupingTolerance = edgeGroupingTolerance;
     this.calculatePixelValue = calculatePixelValue;
     this.strongThreshold = strongThreshold;
     this.weakThreshold = weakThreshold;
@@ -578,9 +603,15 @@ class EdgeFinder {
     this.edges = [];
 
     for (const {row, col} of this.strongGradientCoordinates) {
-      // If the pixels has not yet been put in a group and hasn't been zeroed out, then group it and all the ones connected to it
+      // If the pixel has not yet been put in a group and hasn't been zeroed out, then group it and all the ones connected to it
       if (!this.pixels[row][col].isGrouped && this.pixels[row][col].gradient !== 0) {
         const connectedPixels = this.findConnectedEdgePixels(row, col, this.edges.length);
+
+        // Ignore edges that are too short
+        if (connectedPixels.length < 20) {
+          continue;
+        }
+
         const edgeRows = connectedPixels.map(p => p.row);
         const edgeCols = connectedPixels.map(p => p.col);
         const newEdge = {
@@ -611,14 +642,13 @@ class EdgeFinder {
       // Return an array including the current coordinates and all the neighboring edge pixels
       // Allow for gaps of 1px in case the edge has a discontinuity
       const pixelList = [{row: row, col: col}];
+      const egt = this.edgeGroupingTolerance;
 
-      for (var i = row-2; i <= row+2; i++) {
-        for (var j = col-2; j <= col+2; j++) {
-          if (this.isUngroupedWeakPixel(i, j)) {
-            pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
-          }
+      forEachIJ(row - egt, row + egt, col - egt, col + egt, (i, j) => {
+        if (this.isUngroupedWeakPixel(i, j)) {
+          pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
         }
-      }
+      });
 
       return pixelList;
     }
