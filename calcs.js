@@ -26,7 +26,6 @@ window.onload = function() {
 
     // Set CSV files for download
     image.createDiskDataCsv('diskDataCsv');
-    image.createRowDataCsv('rowDataCsv');
 
     console.log(`Total time: ${Date.now() - startTime}`);
   }
@@ -123,37 +122,21 @@ class LeafDiskImage {
 
   // Create a csv of the individual leaf disk data and add it to the download button
   createDiskDataCsv(downloadLinkId) {
-    const data = ['Necrotic width percentage,Necrotic width,Live radius,Top index,Left index,Right index,Bottom index,Leaf disk radius'];
+    const data = [];
 
-    for (const edge of this.leafDiskEdges) {
-      data.push([
-        edge.necroticWidthPercentage.toFixed(4),
-        edge.necroticWidth.toFixed(4),
-        edge.liveRadius.toFixed(4),
-        edge.top,
-        edge.left,
-        edge.right,
-        edge.bottom,
-        this.avgRadius
-      ].join(','));
-    }
-
-    this.setCsvLink(downloadLinkId, 'leaf_disk_data.csv', data);
-  }
-
-  // Create a csv of the average necrotic width row data and add it to the download button
-  createRowDataCsv(downloadLinkId) {
-    const data = ['Row,Avg necrotic width percentage,Avg necrotic width,Avg live radius,Leaf disk radius'];
+    // Create a header row with numbers for each column
+    const numColumns = Math.max(...this.rows.map(r => r.length));
+    const headers = [...Array(numColumns+1).keys()].join(',').replace('0', '');
+    data.push(headers + ',Average');
 
     this.rows.forEach((row, i) => {
-      const avgNecroticWidthPercentage = average(row.map(e => e.necroticWidthPercentage)).toFixed(4);
-      const avgNecroticWidth = average(row.map(e => e.necroticWidth)).toFixed(4);
-      const avgLiveRadius = average(row.map(e => e.liveRadius)).toFixed(4);
+      const necroticWidthPercentages = row.map(e => e.necroticWidthPercentage);
+      const avgNecroticWidthPercentage = average(necroticWidthPercentages).toFixed(4);
 
-      data.push([i, avgNecroticWidthPercentage, avgNecroticWidth, avgLiveRadius, this.avgRadius].join(','));
+      data.push([i, ...necroticWidthPercentages.map(p => p.toFixed(4)), avgNecroticWidthPercentage].join(','));
     });
 
-    this.setCsvLink(downloadLinkId, 'row_data.csv', data);
+    this.setCsvLink(downloadLinkId, 'leaf_disk_data.csv', data);
   }
 
   // ==============
