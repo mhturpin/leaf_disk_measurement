@@ -83,11 +83,13 @@ class LeafDiskImage {
 
       if (pixel.r + pixel.g < 300) {
         if (pixel.r > pixel.g) {
-          color.r *= 2;
-          color.g /= 2;
+          color.r = 255;
+          color.g = 0;
+          color.b = 0;
         } else {
-          color.g *= 2;
-          color.r /= 2;
+          color.r = 0;
+          color.g = 255;
+          color.b = 0;
         }
       }
 
@@ -130,10 +132,10 @@ class LeafDiskImage {
     data.push(headers + ',Average');
 
     this.rows.forEach((row, i) => {
-      const necroticWidthPercentages = row.map(e => e.necroticWidthPercentage);
-      const avgNecroticWidthPercentage = average(necroticWidthPercentages).toFixed(4);
+      const triangleScores = row.map(e => e.triangleScore);
+      const avgTriangleScore = average(triangleScores).toFixed(4);
 
-      data.push([i, ...necroticWidthPercentages.map(p => p.toFixed(4)), avgNecroticWidthPercentage].join(','));
+      data.push([i, ...triangleScores.map(p => p.toFixed(4)), avgTriangleScore].join(','));
     });
 
     this.setCsvLink(downloadLinkId, 'leaf_disk_data.csv', data);
@@ -189,9 +191,103 @@ class LeafDiskImage {
         this.pixels[row][edge.left].isLeafDiskBox = true;
         this.pixels[row][edge.right].isLeafDiskBox = true;
       }
+
+      this.calculateTriangleScore(edge);
     }
 
     this.avgRadius = (dimensionSum/4)/this.leafDiskEdges.length;
+  }
+
+  calculateTriangleScore(edge) {
+    const radius = 94;
+    let necroticCount = 0;
+    const centerRow = (edge.top + edge.bottom)/2;
+    const centerCol = (edge.left + edge.right)/2;
+
+    // Counts of how many necrotic pixels are at each distance from the disk edge
+    let countEdgeDistances = new Array(radius).fill(0)
+
+    forEachIJ(edge.top, edge.bottom, edge.left, edge.right, (row, col) => {
+      const pix = this.pixels[row][col];
+
+      if (pix.r > pix.g && pix.r + pix.g < 300) {
+        necroticCount++;
+
+        const roundedDistance = radius - Math.round(this.distance(row, col, centerRow, centerCol));
+
+        if (roundedDistance < radius) {
+          countEdgeDistances[roundedDistance]++;
+        }
+      }
+    });
+
+    edge.necroticCount = necroticCount;
+    edge.countEdgeDistances = countEdgeDistances;
+
+    console.log('calculateTriangleScore')
+    console.log(countEdgeDistances)
+
+    const maxCount = Math.max(...countEdgeDistances);
+    const startI = countEdgeDistances.findIndex(c => c === maxCount);
+    countEdgeDistances = countEdgeDistances.slice(startI);
+    // Use 20% of the max to cut off the tail, or 10% of the radius so that it doesn't use counts that are just noise
+    const minCountCutoff = Math.max(maxCount*0.2, radius/10);
+    const endI = countEdgeDistances.findIndex(c => c < minCountCutoff);
+    countEdgeDistances = countEdgeDistances.slice(0, endI);
+
+    console.log(maxCount)
+    console.log(startI)
+    console.log(countEdgeDistances)
+
+    const linReg = this.linearRegression(countEdgeDistances.map((c, i) => ({x: i, y: c})));
+    const xIntercept = -linReg.yIntercept/linReg.slope;
+
+    edge.linReg = linReg;
+    edge.triangleScore = xIntercept*linReg.yIntercept/2;
+  }
+
+  // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
+  // x is the index, and y is the value of the data at the index
+  linearRegression(data) {
+    let xsum = 0;
+    let ysum = 0;
+
+    for (const {x, y} of data) {
+      xsum += x;
+      ysum += y;
+    }
+
+    const xmean = xsum / data.length;
+    const ymean = ysum / data.length;
+
+    let num = 0;
+    let denom = 0;
+
+    for (const {x, y} of data) {
+      num += (x - xmean) * (y - ymean);
+      denom += (x - xmean) * (x - xmean);
+    }
+
+    const m = num / denom
+    const b = ymean - (m * xmean);
+    const coefficients = {slope: m, yIntercept: b};
+
+    return {...coefficients, rSquared: this.rSquared(data, coefficients)};
+  }
+
+  // https://stackoverflow.com/questions/65987106/how-do-i-calculate-r-squared-value-in-javascript
+  rSquared(data, coefficients) {
+    const yPrediction = (x) =>  + coefficients.slope*x + coefficients.yIntercept;
+    let yMean = data.reduce((total, point) => total + point.y, 0)/data.length;
+    let regressionSquaredError = 0;
+    let totalSquaredError = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      regressionSquaredError += (data[i].y - yPrediction(data[i].x))**2;
+      totalSquaredError += (data[i].y - yMean)**2;
+    }
+
+    return 1 - (regressionSquaredError/totalSquaredError);
   }
 
   setLeafDiskRows() {
@@ -215,6 +311,10 @@ class LeafDiskImage {
         edge.rowGroup = this.rows.length;
         this.rows.push([edge]);
       }
+    }
+
+    for (const row of this.rows) {
+      row.sort((a, b) => a.left - b.left);
     }
 
     // Label the row marker pixels for use in the highlighted image
