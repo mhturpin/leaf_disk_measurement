@@ -28,9 +28,15 @@ window.onload = function() {
     image.createDiskDataCsv('necroticGradientScore', 'necroticGradientScoresCsv');
     image.createDiskDataCsv('necroticWidthPercentage', 'necroticWidthPercentagesCsv');
 
+    // Display slope score
+    setText('slope', image.slopeScoreLinearRegression.slope.toFixed(2));
+    setText('yIntercept', image.slopeScoreLinearRegression.yIntercept.toFixed(2));
+    setText('rSquared', image.slopeScoreLinearRegression.rSquared.toFixed(2));
+
     console.log(`Total time: ${Date.now() - startTime}`);
     console.log('Leaf disk rows:');
     console.log(image.rows);
+    console.log(`Average radius: ${image.avgRadius}`);
   }
 }
 
@@ -49,11 +55,9 @@ class LeafDiskImage {
   // Do all the image processing from loading the file to determining necrotic areas
   async processImage() {
     /* Load the image into the pixel array */
-    let startTime = Date.now();
     let fileBase64 = await getFileContentsAsBase64(this.file);
     document.querySelector('img#originalImage').src = fileBase64;
     this.pixels = await base64ToPixels(fileBase64);
-    console.log(`Load image: ${Date.now() - startTime}`);
 
     /* Find the dark blobs */
     forEachIJ(0, this.pixels.length - 1, 0, this.pixels[0].length - 1, (row, col) => {
@@ -102,10 +106,11 @@ class LeafDiskImage {
 
     /* Calculate the scores */
     for (const blob of this.leafDiskBlobs) {
-      this.calculatenecroticGradientScore(blob);
+      this.calculateNecroticGradientScore(blob);
     }
 
     this.setNecroticWidths();
+    this.slopeScoreLinearRegression = this.calculateSlopeScore();
   }
 
   // Return a base64 data url encoding of the processed image converted to a visualization
@@ -140,9 +145,9 @@ class LeafDiskImage {
 
     this.rows.forEach((row, i) => {
       const values = row.map(e => e[dataName]);
-      const avgValue = average(values).toFixed(4);
+      const avgValue = average(values).toFixed(2);
 
-      data.push([i, ...values.map(p => p.toFixed(4)), avgValue].join(','));
+      data.push([i, ...values.map(p => p.toFixed(2)), avgValue].join(','));
     });
 
     this.setCsvLink(downloadLinkId, 'leaf_disk_data.csv', data);
@@ -256,7 +261,7 @@ class LeafDiskImage {
   }
 
   // Calculate the "Gradient Score" for each leaf disk (for the single solution test)
-  calculatenecroticGradientScore(blob) {
+  calculateNecroticGradientScore(blob) {
     const radius = Math.round(this.avgRadius);
     const {centerRow, centerCol} = blob.centerCoordinates();
 
@@ -281,56 +286,12 @@ class LeafDiskImage {
     countEdgeDistances = countEdgeDistances.slice(0, endI);
 
     // Calculate the linear regression
-    const linReg = this.linearRegression(countEdgeDistances.map((c, i) => ({x: i, y: c})));
+    const linReg = linearRegression(countEdgeDistances.map((c, i) => ({x: i, y: c})));
     const xIntercept = -linReg.yIntercept/linReg.slope;
 
     // Set the values on the blob
-    blob.linearRegression = linReg;
+    blob.necroticGradientLinearRegression = linReg;
     blob.necroticGradientScore = xIntercept*linReg.yIntercept/2;
-  }
-
-  // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
-  // x is the index, and y is the value of the data at the index
-  linearRegression(data) {
-    let xsum = 0;
-    let ysum = 0;
-
-    for (const {x, y} of data) {
-      xsum += x;
-      ysum += y;
-    }
-
-    const xmean = xsum / data.length;
-    const ymean = ysum / data.length;
-
-    let num = 0;
-    let denom = 0;
-
-    for (const {x, y} of data) {
-      num += (x - xmean) * (y - ymean);
-      denom += (x - xmean) * (x - xmean);
-    }
-
-    const m = num / denom
-    const b = ymean - (m * xmean);
-    const coefficients = {slope: m, yIntercept: b};
-
-    return {...coefficients, rSquared: this.rSquared(data, coefficients)};
-  }
-
-  // https://stackoverflow.com/questions/65987106/how-do-i-calculate-r-squared-value-in-javascript
-  rSquared(data, coefficients) {
-    const yPrediction = (x) =>  + coefficients.slope*x + coefficients.yIntercept;
-    let yMean = data.reduce((total, point) => total + point.y, 0)/data.length;
-    let regressionSquaredError = 0;
-    let totalSquaredError = 0;
-
-    for (let i = 0; i < data.length; i++) {
-      regressionSquaredError += (data[i].y - yPrediction(data[i].x))**2;
-      totalSquaredError += (data[i].y - yMean)**2;
-    }
-
-    return 1 - (regressionSquaredError/totalSquaredError);
   }
 
   // Find the best fit circles for the necrotic boundaries and set the necrotic width for each one
@@ -402,6 +363,30 @@ class LeafDiskImage {
 
       this.pixels[row][col].isBestFitCircle = true;
     }
+  }
+
+  // Returns the slope score for the card
+  calculateSlopeScore() {
+    if (this.rows.length !== 4) {
+      console.log('Wrong number of rows, not calculating slope score.');
+      const message = "Couldn't be calculated";
+      return {slope: message, yIntercept: message, message};
+    }
+
+    const logConcentrations = [Math.log10(8), Math.log10(12), Math.log10(14), Math.log10(16)];
+    const data = [];
+
+    this.rows.forEach((row, i) => {
+      const necroticRates = row.map(blob => this.calculateNecroticRate(blob));
+      data.push({x: logConcentrations[i], y: average(necroticRates)});
+    });
+
+    return linearRegression(data);
+  }
+
+  calculateNecroticRate(blob) {
+    const necroticAreaPortion = 1 - (blob.liveRadius**2)/(this.avgRadius**2);
+    return necroticAreaPortion*197.93/23;
   }
 
   // Create a csv and make it the href for the download button identified by id
@@ -515,6 +500,10 @@ function forEachIJ(startI, endI, startJ, endJ, doSomething) {
   return values;
 }
 
+/* ============================================== */
+// Calculations
+/* ============================================== */
+
 // Determine if a number is within the given tolerance of another number
 function isWithinTolerance(correctNum, num, tolerance) {
   return Math.abs(correctNum - num) < correctNum*tolerance;
@@ -530,10 +519,55 @@ function average(array) {
   return array.reduce((sum, value) => sum + value, 0)/array.length;
 }
 
+// Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
+// x is the index, and y is the value of the data at the index
+function linearRegression(data) {
+  let xsum = 0;
+  let ysum = 0;
+
+  for (const {x, y} of data) {
+    xsum += x;
+    ysum += y;
+  }
+
+  const xmean = xsum / data.length;
+  const ymean = ysum / data.length;
+
+  let num = 0;
+  let denom = 0;
+
+  for (const {x, y} of data) {
+    num += (x - xmean) * (y - ymean);
+    denom += (x - xmean) * (x - xmean);
+  }
+
+  const m = num / denom
+  const b = ymean - (m * xmean);
+  const coefficients = {slope: m, yIntercept: b};
+
+  return {...coefficients, rSquared: this.rSquared(data, coefficients)};
+}
+
+// https://stackoverflow.com/questions/65987106/how-do-i-calculate-r-squared-value-in-javascript
+function rSquared(data, coefficients) {
+  const yPrediction = (x) =>  + coefficients.slope*x + coefficients.yIntercept;
+  let yMean = data.reduce((total, point) => total + point.y, 0)/data.length;
+  let regressionSquaredError = 0;
+  let totalSquaredError = 0;
+
+  for (let i = 0; i < data.length; i++) {
+    regressionSquaredError += (data[i].y - yPrediction(data[i].x))**2;
+    totalSquaredError += (data[i].y - yMean)**2;
+  }
+
+  return 1 - (regressionSquaredError/totalSquaredError);
+}
+
 
 /* ============================================== */
 // Image conversion functions
 /* ============================================== */
+
 // Load the file contents as a base64 data url
 function getFileContentsAsBase64(file) {
   return new Promise((resolve) => {
@@ -610,4 +644,14 @@ function pixelsToBase64(pixels, transformation) {
   ctx.putImageData(imageData, 0, 0);
 
   return canvas.toDataURL();
+}
+
+
+/* ============================================== */
+// HTML functions
+/* ============================================== */
+
+// Set the text of an element
+function setText(id, text) {
+  document.getElementById(id).textContent = text;
 }
