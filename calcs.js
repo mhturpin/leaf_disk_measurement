@@ -38,6 +38,9 @@ window.onload = function() {
 class LeafDiskImage {
   constructor(file) {
     this.file = file;
+    this.darkBlobs = [];
+    this.leafDiskBlobs = [];
+    this.rows = [];
   }
 
   // Do all the image processing from loading the file to determining necrotic areas
@@ -49,74 +52,100 @@ class LeafDiskImage {
     this.pixels = await base64ToPixels(fileBase64);
     console.log(`Load image: ${Date.now() - startTime}`);
 
-    /* Set expected size for the leaf disks */
-    // Assume the image is a 3" wide index card and the leaf disks are 5/8"
-    this.expectedLeafDiskDiameter = (this.pixels[0].length/3)*5/8;
+    /* Find the dark blobs */
+    forEachIJ(0, this.pixels.length - 1, 0, this.pixels[0].length - 1, (row, col) => {
+      const pixel = this.pixels[row][col];
+
+      // If the pixel is dark, match it to a blob or create a new one
+      // If it touches two blobs, merge them
+      if ((pixel.r + pixel.g) < 300) {
+        // Mark the pixel as attributes
+        pixel.isDark = true;
+        pixel.isNecrotic = pixel.r > pixel.g;
+
+        // Find blobs that touch the pixel
+        const indices = this.findTouchingBlobIndices(row, col)
+
+        switch (indices.length) {
+          case 0:
+            this.darkBlobs.push(new PixelBlob(row, col));
+            break;
+          case 1:
+            this.darkBlobs[indices[0]].addPixel(row, col);
+            break;
+          case 2:
+            // Merge blob 2 into blob 1
+            this.darkBlobs[indices[0]].merge(this.darkBlobs[indices[1]]);
+            // Remove blob 2 from the array
+            this.darkBlobs.splice(indices[1], 1);
+            // Add the pixel to blob 1
+            this.darkBlobs[indices[0]].addPixel(row, col);
+            break;
+          default:
+            throw `A pixel matched ${indices.length} blobs`
+        }
+      }
+    });
+
+
+    this.leafDiskBlobs = this.darkBlobs.filter(blob => blob.isLeafDisk());
+
+
+
+
+
+
+    console.log()
+    this.markBlobBorders();
+
+
+
+
 
     /* Find the edges */
-    startTime = Date.now();
-    this.setLeafDiskEdges();
-    console.log(`Find edges: ${Date.now() - startTime}`);
 
     /* Find the necrotic boundaries */
-    startTime = Date.now();
-    this.setNecroticBoundaries();
-    this.setNecroticWidths();
-    console.log(`setNecroticBoundaries: ${Date.now() - startTime}`);
+    // startTime = Date.now();
+    // this.setNecroticBoundaries();
+    // this.setNecroticWidths();
+    // console.log(`setNecroticBoundaries: ${Date.now() - startTime}`);
 
 
-    console.log('this.leafDiskEdges:');
-    console.log(this.leafDiskEdges);
-    // console.log('this.pixels:');
-    // console.log(this.pixels);
+    // console.log('this.leafDiskEdges:');
+    // console.log(this.leafDiskEdges);
   }
 
-  // Return a base64 data url encoding of the found edges converted to a visualization
-  getEdgeImage() {
-    return this.diskEdgeFinder.getEdgeImage();
-  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   // Return a base64 data url encoding of the found edges converted to a visualization
   getHighlightedImage() {
     return pixelsToBase64(this.pixels, (pixel) => {
       let color = {r: pixel.r, g: pixel.g, b: pixel.b};
 
-      if (pixel.r + pixel.g < 300) {
-        if (pixel.r > pixel.g) {
-          color.r = 255;
-          color.g = 0;
-          color.b = 0;
-        } else {
-          color.r = 0;
-          color.g = 255;
-          color.b = 0;
-        }
-      }
+      // Mark dark pixels green
+      if (pixel.isDark) color = {r: 0, g: 255, b: 0};
 
-      // Mark leaf disk edges black
-      if (pixel.isLeafDiskBox) {
-        color = {r: 0, g: 0, b: 0};
-      }
+      // Mark necrotic pixels red
+      if (pixel.isNecrotic) color = {r: 255, g: 0, b: 0};
 
-      // Mark leaf disk edges black
-      if (pixel.isLeafDiskEdge) {
-        color = {r: 0, g: 0, b: 0};
-      }
-
-      // Mark necrotic edges pink
-      if (pixel.isNecroticEdge) {
-        color = {r: 255, g: 0, b: 255};
-      }
+      // Mark leaf disk boxes and row markers black
+      if (pixel.isLeafDiskBox || pixel.isRowMarker) color = {r: 0, g: 0, b: 0};
 
       // Mark best fit circle white
-      if (pixel.isBestFitCircle) {
-        color = {r: 255, g: 255, b: 255};
-      }
-
-      // Mark the row markers black
-      if (pixel.isRowMarker) {
-        color = {r: 0, g: 0, b: 0};
-      }
+      if (pixel.isBestFitCircle) color = {r: 255, g: 255, b: 255};
 
       return color;
     });
@@ -145,58 +174,36 @@ class LeafDiskImage {
   // Helper methods
   // ==============
 
-  // Determine if an edge is a circle based on the ratio of height/width and the number of pixels
-  isEdgeCircular({height, width, coordinates}) {
-    const isSquare = this.isWithinTolerance(height, width, 0.1);
-    const isCorrectDiameter = this.isWithinTolerance(this.expectedLeafDiskDiameter, width, 0.1);
+  // Return an array of indices of all blobs that touch the given pixel
+  findTouchingBlobIndices(row, col) {
+    return this.darkBlobs.reduce(function(indices, blob, i) {
+      if (blob.touches(row, col)) indices.push(i);
 
-    return isSquare && isCorrectDiameter;
+      return indices;
+    }, []);
   }
 
-  // Determine if a number is within the given tolerance of another number
-  isWithinTolerance(correctNum, num, tolerance) {
-    return Math.abs(correctNum - num) < correctNum*tolerance;
-  }
-
-  // Find the edges of the leaf disks
-  setLeafDiskEdges() {
-    // Gradient value is the total pixel brightness
-    this.diskEdgeFinder = new EdgeFinder(this.pixels, 500, 300, 2, ({r, g, b}) => r + g + b);
-    this.diskEdgeFinder.findEdges(false);
-    this.leafDiskEdges = structuredClone(this.diskEdgeFinder.edges.filter(e => this.isEdgeCircular(e)));
-
-    // Group leaf disks into rows
-    this.setLeafDiskRows();
-
-    // Mark leaf disk edges so that we can access them easily when creating the highlighted image and find the average radius
-    let dimensionSum = 0;
-
-    for (const edge of this.leafDiskEdges) {
-      dimensionSum += edge.bottom - edge.top;
-      dimensionSum += edge.right - edge.left;
-
-      // The actual edges
-      for (const {row, col} of edge.coordinates) {
-        this.pixels[row][col].isLeafDiskEdge = true;
-      }
-
+  // Mark blob borders on the image
+  markBlobBorders() {
+    for (const blob of this.leafDiskBlobs) {
       // Top and bottom box
-      for (let col = edge.left; col <= edge.right; col++) {
-        this.pixels[edge.top][col].isLeafDiskBox = true;
-        this.pixels[edge.bottom][col].isLeafDiskBox = true;
+      for (let col = blob.left; col <= blob.right; col++) {
+        this.pixels[blob.top][col].isLeafDiskBox = true;
+        this.pixels[blob.bottom][col].isLeafDiskBox = true;
       }
 
       // Left and right box
-      for (let row = edge.top; row <= edge.bottom; row++) {
-        this.pixels[row][edge.left].isLeafDiskBox = true;
-        this.pixels[row][edge.right].isLeafDiskBox = true;
+      for (let row = blob.top; row <= blob.bottom; row++) {
+        this.pixels[row][blob.left].isLeafDiskBox = true;
+        this.pixels[row][blob.right].isLeafDiskBox = true;
       }
-
-      this.calculateTriangleScore(edge);
     }
-
-    this.avgRadius = (dimensionSum/4)/this.leafDiskEdges.length;
   }
+
+
+
+
+
 
   calculateTriangleScore(edge) {
     const radius = 94;
@@ -360,39 +367,6 @@ class LeafDiskImage {
     });
   }
 
-  // Find the boundaries of necrotic and live leaf tissue
-  setNecroticBoundaries() {
-    for (const leafDiskEdge of this.leafDiskEdges) {
-      const leafDiskPixels = this.pixels.slice(leafDiskEdge.top, leafDiskEdge.bottom+1).map(row => row.slice(leafDiskEdge.left, leafDiskEdge.right+1));
-      const boundaryFinder = new EdgeFinder(leafDiskPixels, 500, 200, 1, ({r, g}) => {
-        // Pixels are necrotic if red > green
-        // Group white background with necrotic so that only the edge between necrotic and live is found
-        if (r > g || r + g > 300) {
-          return 255*3;
-        } else {
-          return 0;
-        }
-      });
-
-      boundaryFinder.findEdges(true);
-
-      // Create a list of all necrotic boundary coordinates
-      leafDiskEdge.necroticBoundaryCoordinates = [];
-      boundaryFinder.edges.forEach(e => leafDiskEdge.necroticBoundaryCoordinates.push(...e.coordinates));
-
-      // Mark necrotic edges so that we can access them easily when creating the highlighted image
-      for (const edge of boundaryFinder.edges) {
-        for (const {row, col} of edge.coordinates) {
-          // The coordinates on the necrotic edge are relative to the leaf disk boundaries
-          const originalRow = leafDiskEdge.top + row;
-          const originalCol = leafDiskEdge.left + col;
-
-          this.pixels[originalRow][originalCol].isNecroticEdge = true;
-        }
-      }
-    }
-  }
-
   // Find the best fit circles for the necrotic boundaries and set the necrotic width for each one
   setNecroticWidths() {
     for (const leafDiskEdge of this.leafDiskEdges) {
@@ -450,11 +424,6 @@ class LeafDiskImage {
     this.setBestFitCircle(leafDiskEdge.liveRadius, centerRow, centerCol);
   }
 
-  // Calculate the distance between two points
-  distance(row1, col1, row2, col2) {
-    return Math.sqrt((row1 - row2)**2 + (col1 - col2)**2);
-  }
-
   // Mark the best fit circle with radius r and center row, col
   setBestFitCircle(r, centerRow, centerCol) {
     const steps = 1000;
@@ -479,268 +448,82 @@ class LeafDiskImage {
 
 
 /* ============================================== */
-// A class to handle edge finding processes
+// A class to handle pixel blob functions
 /* ============================================== */
-class EdgeFinder {
-  // Takes in a 2D array of pixels and a function used to calculate the gradient value
-  constructor(pixels, strongThreshold, weakThreshold, edgeGroupingTolerance, calculatePixelValue) {
-    this.pixels = structuredClone(pixels);
-    this.height = this.pixels.length;
-    this.width = this.pixels[0].length;
-    this.edgeGroupingTolerance = edgeGroupingTolerance;
-    this.calculatePixelValue = calculatePixelValue;
-    this.strongThreshold = strongThreshold;
-    this.weakThreshold = weakThreshold;
-    this.strongGradientCoordinates = [];
-    this.weakGradientCoordinates = [];
+class PixelBlob {
+  // Initialize with a single pixel
+  constructor(row, col) {
+    this.top = row;
+    this.bottom = row;
+    this.left = col;
+    this.right = col;
+    this.coordinates = [{row: row, col: col}];
   }
 
-  // Find all edges in the file using the Canny edge detection algorithm
-  // https://en.wikipedia.org/wiki/Canny_edge_detector
-  findEdges(useOutlierSuppression) {
-    /* Calculate the gradient and angle for each pixel */
-    // Set all the pixel values first so that we aren't recalculating them
-    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
-      this.pixels[row][col].value = this.calculatePixelValue(this.pixels[row][col]);
-    });
+  // Returns true if the coordinates are contained by or adjacent to the blob
+  touches(row, col) {
+    const rowTouches = (this.top - 1) <= row && row <= (this.bottom + 1);
+    const colTouches = (this.left - 1) <= col && col <= (this.right + 1);
 
-    // Suppress live pixels within the necrotic area to help with circle finding
-    if (useOutlierSuppression) {
-      this.suppressOutliers();
-    }
-
-    // Calculate all sums of three pixels in the horizontal direction to avoid redoing calculations
-    // The sum is saved on the center pixel
-    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
-      this.pixels[row][col].rowSumOfThree = this.sumPixelValues(row, row, col-1, col+1);
-      this.pixels[row][col].colSumOfThree = this.sumPixelValues(row-1, row+1, col, col);
-    });
-    // Use .bind(this) so that the function has the context when it is called
-    forEachIJ(0, this.height-1, 0, this.width-1, this.setGradientValues.bind(this));
-
-    /* If the pixel gradient is not the maximum of the 3 in line with the gradient direction, set it to 0 */
-    // This ensures that we only have one pixel per edge
-    // Thresholding done when setting the pixel gradients to improve performance
-    for (const {row, col} of this.weakGradientCoordinates) {
-      if (!this.isMaxGradient(row, col)) {
-        this.pixels[row][col].gradient = 0;
-      }
-    }
-
-    for (const {row, col} of this.strongGradientCoordinates) {
-      if (!this.isMaxGradient(row, col)) {
-        this.pixels[row][col].gradient = 0;
-      }
-    }
-
-    /* Create the coordinate arrays for all the connected edges */
-    this.groupContinuousEdges();
+    return rowTouches && colTouches;
   }
 
-  // Return a base64 data url encoding of the gradients converted to a visualization
-  // Edges will be white and everything else black
-  getEdgeImage() {
-    return pixelsToBase64(this.pixels, ({isGrouped}) => {
-      let color = {r: 0, g: 0, b: 0};
+  // Adjust the boundaries if necessary and add the coordinates to the array
+  addPixel(row, col) {
+    if (!this.touches(row, col)) throw 'Pixel does not touch the blob';
 
-      // Only show pixels that have been determined to belong to an edge
-      if (isGrouped) {
-        color = {r: 255, g: 255, b: 255};
-      }
-      // let color = {r: gradient/3, g: gradient/3, b: gradient/3};
+    // Update the boundaries if necessary
+    if (this.top > row) this.top = row;
+    if (this.bottom < row) this.bottom = row;
+    if (this.left > col) this.left = col;
+    if (this.right < col) this.right = col;
 
-      return color;
-    });
+    // Add the pixel to the coordinates array
+    this.coordinates.push({row: row, col: col});
   }
 
-  // Return a base64 data url encoding of the gradients converted to a visualization
-  // Edges will be white and everything else black
-  getValueImage() {
-    return pixelsToBase64(this.pixels, ({value}) => {
-      let color = {r: value/3, g: value/3, b: value/3};
+  // Merge the blob into this one
+  merge(blob) {
+    // Merge boundaries
+    this.top = Math.min(this.top, blob.top);
+    this.bottom = Math.max(this.bottom, blob.bottom);
+    this.left = Math.min(this.left, blob.left);
+    this.right = Math.max(this.right, blob.right);
 
-      return color;
-    });
+    // Merge the coordinate arrays
+    this.coordinates = this.coordinates.concat(blob.coordinates);
   }
+
+  // Returns the height of the blob
+  height() {
+    return this.bottom - this.top;
+  }
+
+  // Returns the width of the blob
+  width() {
+    return this.right - this.left;
+  }
+
+  // Returns the radius of the blob
+  radius() {
+    return (this.height() + this.width())/4;
+  }
+
+  // Returns true if the blob's height and width are roughly equal,
+  // if it has roughly the number of dark pixels expected if it were circular,
+  // and if the radius is greater than 25 (no image should be less than 80 dpi)
+  isLeafDisk() {
+    const isSquare = isWithinTolerance(this.height(), this.width(), 0.1);
+    const expectedPixels = Math.PI*(this.radius()**2);
+    const isCorrectNumberOfPixels = isWithinTolerance(expectedPixels, this.coordinates.length, 0.1);
+
+    return isSquare && isCorrectNumberOfPixels && this.radius() > 25;
+  }
+
 
   // ==============
   // Helper methods
   // ==============
-  // Smooth the image to reduce noise
-  smoothImage() {
-    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
-      const scaledValues = forEachIJ(-2, 2, -2, 2, (i, j) => {
-        const {value} = this.getPixel(row + i, col + j);
-        return this.scaleValue(value, i, j);
-      });
-
-      this.pixels[row][col].value = Math.round(scaledValues.reduce((sum, value) => sum + value, 0));
-    });
-  }
-
-  // Use the gaussian filter to scale the value
-  scaleValue(value, i, j) {
-    const filter = [
-      [2, 4, 5, 4, 2],
-      [4, 9, 12, 9, 4],
-      [5, 12, 15, 12, 5],
-      [4, 9, 12, 9, 4],
-      [2, 4, 5, 4, 2]
-    ];
-    const total = 159;
-
-    return value*filter[i+2][j+2]/total;
-  }
-
-  // Set pixel value to the max value if the majority of pixels around it also have a high value
-  suppressOutliers() {
-    forEachIJ(0, this.height-1, 0, this.width-1, (row, col) => {
-      const maxValue = 255*3;
-      const neighborValues = forEachIJ(-2, 2, -2, 2, (i, j) => this.getPixel(row + i, col + j).value);
-
-      if (this.pixels[row][col].value === 0 && neighborValues.filter(v => v === maxValue).length > 12) {
-        this.pixels[row][col].value = maxValue;
-      }
-    });
-  }
-
-  // Return the pixel, or if the coordinates are out of bounds, return the nearest pixel
-  getPixel(row, col) {
-    if (row < 0) {
-      row = 0;
-    } else if (row >= this.height) {
-      row = this.height-1;
-    }
-
-    if (col < 0) {
-      col = 0;
-    } else if (col >= this.width) {
-      col = this.width-1;
-    }
-
-    return this.pixels[row][col];
-  }
-
-  // Calculate and set the gradient and angle (converted to degrees and rounded to the nearest 45)
-  setGradientValues(row, col) {
-    const sumTop = this.getPixel(row-1, col).rowSumOfThree;
-    const sumBottom = this.getPixel(row+1, col).rowSumOfThree;
-    const verticalGradient = sumTop - sumBottom;
-    const sumLeft = this.getPixel(row, col-1).colSumOfThree;
-    const sumRight = this.getPixel(row, col+1).colSumOfThree;
-    const horizontalGradient = sumLeft - sumRight;
-    const totalGradient = Math.sqrt(verticalGradient**2 + horizontalGradient**2);
-
-    // Only set gradients for pixels above the weakThreshold to save time later
-    if (totalGradient > this.weakThreshold) {
-      // If the pixel is strong or weak, add it to the proper list
-      if (totalGradient > this.strongThreshold) {
-        this.strongGradientCoordinates.push({row: row, col: col});
-      } else if (totalGradient > this.weakThreshold) {
-        this.weakGradientCoordinates.push({row: row, col: col});
-      }
-
-      // Set the values on the pixel
-      this.pixels[row][col].gradient = totalGradient;
-      const angleDegrees = Math.atan(verticalGradient/horizontalGradient)*180/Math.PI;
-      this.pixels[row][col].gradientAngle = Math.round(angleDegrees/45)*45;
-    }
-  }
-
-  // Get the sum of all pixel brightnesses for the given ranges (inclusive)
-  // If the range goes out of bounds, it'll use the pixel on the edge
-  sumPixelValues(startRow, endRow, startCol, endCol) {
-    const values = forEachIJ(startRow, endRow, startCol, endCol, (row, col) => {
-      return this.getPixel(row, col).value;
-    });
-
-    return values.reduce((sum, gradient) => sum + gradient, 0);
-  }
-
-  // Check if the pixel at row, col has a larger gradient value than its neighbors in line with the gradient direction
-  isMaxGradient(row, col) {
-    const angle = this.pixels[row][col].gradientAngle;
-    let neighborGradients;
-
-    if (angle === 0) {
-      // left to right direction
-      neighborGradients = [this.pixels[row]?.[col-1]?.gradient, this.pixels[row]?.[col+1]?.gradient];
-    } else if (angle === 45) {
-      // upper left to lower right direction
-      neighborGradients = [this.pixels[row-1]?.[col-1]?.gradient, this.pixels[row+1]?.[col+1]?.gradient];
-    } else if (angle === -45) {
-      // lower left to upper right direction
-      neighborGradients = [this.pixels[row-1]?.[col+1]?.gradient, this.pixels[row+1]?.[col-1]?.gradient];
-    } else {
-      // top to bottom direction
-      neighborGradients = [this.pixels[row-1]?.[col]?.gradient, this.pixels[row+1]?.[col]?.gradient];
-    }
-
-    // Filter out undefined if the neighbor doesn't exist (the pixel is on the edge of the image)
-    return this.pixels[row][col].gradient > Math.max(...neighborGradients.filter((g) => typeof g === 'number'));
-  }
-
-  // Loop through all the strong gradient pixels and group them into continuous edges
-  // Set this.edges to an array of coordinate arrays, each coordinate array representing one continuous edge
-  groupContinuousEdges() {
-    this.edges = [];
-
-    for (const {row, col} of this.strongGradientCoordinates) {
-      // If the pixel has not yet been put in a group and hasn't been zeroed out, then group it and all the ones connected to it
-      if (!this.pixels[row][col].isGrouped && this.pixels[row][col].gradient !== 0) {
-        const connectedPixels = this.findConnectedEdgePixels(row, col, this.edges.length);
-
-        // Ignore edges that are too short
-        if (connectedPixels.length < 20) {
-          continue;
-        }
-
-        const edgeRows = connectedPixels.map(p => p.row);
-        const edgeCols = connectedPixels.map(p => p.col);
-        const newEdge = {
-          top: Math.min(...edgeRows),
-          bottom: Math.max(...edgeRows),
-          left: Math.min(...edgeCols),
-          right: Math.max(...edgeCols),
-          coordinates: connectedPixels
-        }
-        newEdge.height = newEdge.bottom - newEdge.top;
-        newEdge.width = newEdge.right - newEdge.left;
-
-        this.edges.push(newEdge);
-      }
-    }
-  }
-
-  // Return a coordinate array of all edge pixels connected to the pixel at the given coordinates
-  // The edgeIndex parameter identifies which edge the pixel is getting grouped into
-  findConnectedEdgePixels(row, col, edgeIndex) {
-    if (!this.isUngroupedWeakPixel(row, col)) {
-      throw new Error('findConnectedEdgePixels called with invalid pixel');
-    } else {
-      // Mark the pixel as grouped so that we don't process it again
-      this.pixels[row][col].isGrouped = true;
-      this.pixels[row][col].edgeIndex = edgeIndex;
-
-      // Return an array including the current coordinates and all the neighboring edge pixels
-      // Allow for gaps of 1px in case the edge has a discontinuity
-      const pixelList = [{row: row, col: col}];
-      const egt = this.edgeGroupingTolerance;
-
-      forEachIJ(row - egt, row + egt, col - egt, col + egt, (i, j) => {
-        if (this.isUngroupedWeakPixel(i, j)) {
-          pixelList.push(...this.findConnectedEdgePixels(i, j, edgeIndex));
-        }
-      });
-
-      return pixelList;
-    }
-  }
-
-  // Return true if the pixel is valid, is above the weak threshold, and is ungrouped
-  isUngroupedWeakPixel(row, col) {
-    return this.pixels[row]?.[col] !== undefined && this.pixels[row][col].gradient > this.weakThreshold && !this.pixels[row][col].isGrouped;
-  }
 }
 
 // Calls the function with each row and col for the given ranges
@@ -756,6 +539,16 @@ function forEachIJ(startI, endI, startJ, endJ, doSomething) {
   }
 
   return values;
+}
+
+// Determine if a number is within the given tolerance of another number
+function isWithinTolerance(correctNum, num, tolerance) {
+  return Math.abs(correctNum - num) < correctNum*tolerance;
+}
+
+// Calculate the distance between two points
+function distance(row1, col1, row2, col2) {
+  return Math.sqrt((row1 - row2)**2 + (col1 - col2)**2);
 }
 
 // Average an array of numbers
