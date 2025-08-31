@@ -28,6 +28,8 @@ window.onload = function() {
     image.createDiskDataCsv('diskDataCsv');
 
     console.log(`Total time: ${Date.now() - startTime}`);
+    console.log('Leaf disk rows:');
+    console.log(image.rows);
   }
 }
 
@@ -95,31 +97,14 @@ class LeafDiskImage {
     this.leafDiskBlobs = this.darkBlobs.filter(blob => blob.isLeafDisk());
     this.labelBlobBorders();
     this.setLeafDiskRows();
+    this.setAvgRadius();
 
     /* Calculate the scores */
     for (const blob of this.leafDiskBlobs) {
       this.calculateTriangleScore(blob);
     }
 
-
-
-
-
-
-
-
-
-
-
-    /* Find the necrotic boundaries */
-    // startTime = Date.now();
-    // this.setNecroticBoundaries();
-    // this.setNecroticWidths();
-    // console.log(`setNecroticBoundaries: ${Date.now() - startTime}`);
-
-
-    console.log('this.rows:');
-    console.log(this.rows);
+    this.setNecroticWidths();
   }
 
   // Return a base64 data url encoding of the processed image converted to a visualization
@@ -264,9 +249,14 @@ class LeafDiskImage {
     });
   }
 
+  setAvgRadius() {
+    const radii = this.leafDiskBlobs.map(blob => blob.radius());
+    this.avgRadius = average(radii);
+  }
+
   // Calculate the "Triangle Score" for each leaf disk (for the single solution test)
   calculateTriangleScore(blob) {
-    const radius = Math.round(blob.radius());
+    const radius = Math.round(this.avgRadius);
     const {centerRow, centerCol} = blob.centerCoordinates();
 
     // Counts of how many necrotic pixels are at each distance from the disk blob
@@ -342,38 +332,25 @@ class LeafDiskImage {
     return 1 - (regressionSquaredError/totalSquaredError);
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
   // Find the best fit circles for the necrotic boundaries and set the necrotic width for each one
   setNecroticWidths() {
-    for (const leafDiskEdge of this.leafDiskEdges) {
-      this.findBestFitCircle(leafDiskEdge);
+    for (const blob of this.leafDiskBlobs) {
+      this.findBestFitCircle(blob);
     }
   }
 
   // Find the cicles that best fit the line between live and necrotic tissue
-  findBestFitCircle(leafDiskEdge) {
-    // The center of the disk
-    const centerRow = (leafDiskEdge.top + leafDiskEdge.bottom)/2;
-    const centerCol = (leafDiskEdge.left + leafDiskEdge.right)/2;
-
+  findBestFitCircle(blob) {
     // Create an array of all the distances of necrotic edge pixels from the center
-    const distances = leafDiskEdge.necroticBoundaryCoordinates.map(({row, col}) => this.distance(leafDiskEdge.top + row, leafDiskEdge.left + col, centerRow, centerCol));
+    const {centerRow, centerCol} = blob.centerCoordinates();
+    const necroticEdgeCoordinates = blob.necroticCoordinates.filter(({row, col}) => this.isNecroticEdge(row, col));
+
+    const distances = necroticEdgeCoordinates.map(({row, col}) => distance(row, col, centerRow, centerCol));
     distances.sort((a, b) => a - b);
 
     // Count distances within +/- 1% of each integer
-    const distanceGroups = {};
+    const radius = Math.round(this.avgRadius);
+    const distanceGroups = new Array(radius).fill(0);
     const groupTolerance = Math.round(this.avgRadius*0.01);
 
     for (const d of distances) {
@@ -382,34 +359,36 @@ class LeafDiskImage {
       const end = roundedDistance + groupTolerance;
 
       for (let i = start; i <= end; i++) {
-        if (distanceGroups[i] === undefined) {
-          distanceGroups[i] = 1;
-        } else {
-          distanceGroups[i] += 1;
-        }
+        if (i < radius) distanceGroups[i]++;
       }
     }
 
     // Find the distance group with the most members, this is our base value
     // The group with the most members will be the best fit circle
-    let maxCount = 0;
-    let mostCommonDistance = 0;
+    const maxCount = Math.max(...distanceGroups);
+    const mostCommonDistance = distanceGroups.findIndex(c => c === maxCount);
 
-    for (const [key, value] of Object.entries(distanceGroups)) {
-      if (maxCount < value) {
-        maxCount = value;
-        mostCommonDistance = parseInt(key);
+    // Average all the actual pixel distances within the group to get a more accurate value
+    const bestFitDistances = distances.filter(d => d > mostCommonDistance - groupTolerance && d < mostCommonDistance + groupTolerance);
+
+    blob.liveRadius = average(bestFitDistances);
+    blob.necroticWidth = this.avgRadius - blob.liveRadius;
+    blob.necroticWidthPercentage = 100*blob.necroticWidth/this.avgRadius;
+
+    // Set the best fit circle for the highlighted image
+    this.setBestFitCircle(blob.liveRadius, centerRow, centerCol);
+  }
+
+  // Return true if the pixel borders any dark pixels that are not necrotic
+  isNecroticEdge(row, col) {
+    for (let i = row-1; i <= row+1; i++) {
+      for (let j = col-1; j <= col+1; j++) {
+        const pixel = this.pixels[i][j];
+        if (!pixel.isNecrotic && pixel.isDark) return true;
       }
     }
 
-    // Average all the distances within the group to get a more accurate value
-    const bestFitDistances = distances.filter((d) => d > mostCommonDistance - groupTolerance && d < mostCommonDistance + groupTolerance);
-    leafDiskEdge.liveRadius = average(bestFitDistances);
-    leafDiskEdge.necroticWidth = this.avgRadius - leafDiskEdge.liveRadius;
-    leafDiskEdge.necroticWidthPercentage = 100*leafDiskEdge.necroticWidth/this.avgRadius;
-
-    // Set the best fit circle for the highlighted image
-    this.setBestFitCircle(leafDiskEdge.liveRadius, centerRow, centerCol);
+    return false;
   }
 
   // Mark the best fit circle with radius r and center row, col
