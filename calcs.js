@@ -64,45 +64,52 @@ class LeafDiskImage {
         pixel.isNecrotic = pixel.r > pixel.g;
 
         // Find blobs that touch the pixel
-        const indices = this.findTouchingBlobIndices(row, col)
+        const indices = this.findTouchingBlobIndices(row, col);
+        let matchingBlob;
 
         switch (indices.length) {
           case 0:
-            this.darkBlobs.push(new PixelBlob(row, col));
+            // If there are no matches, create a new blob
+            matchingBlob = new PixelBlob();
+            this.darkBlobs.push(matchingBlob);
             break;
           case 1:
-            this.darkBlobs[indices[0]].addPixel(row, col);
+            // If there is only one match use that
+            matchingBlob = this.darkBlobs[indices[0]];
             break;
           case 2:
-            // Merge blob 2 into blob 1
-            this.darkBlobs[indices[0]].merge(this.darkBlobs[indices[1]]);
-            // Remove blob 2 from the array
+            // If there are two matches, merge them
+            matchingBlob = this.darkBlobs[indices[0]];
+            matchingBlob.merge(this.darkBlobs[indices[1]]);
             this.darkBlobs.splice(indices[1], 1);
-            // Add the pixel to blob 1
-            this.darkBlobs[indices[0]].addPixel(row, col);
             break;
           default:
             throw `A pixel matched ${indices.length} blobs`
         }
+
+        matchingBlob.addPixel(row, col, pixel.isNecrotic);
       }
     });
 
-
+    /* Set the leaf disk blobs and group into rows */
     this.leafDiskBlobs = this.darkBlobs.filter(blob => blob.isLeafDisk());
+    this.labelBlobBorders();
+    this.setLeafDiskRows();
+
+    /* Calculate the scores */
+    for (const blob of this.leafDiskBlobs) {
+      this.calculateTriangleScore(blob);
+    }
 
 
 
 
 
 
-    console.log()
-    this.markBlobBorders();
 
 
 
 
-
-    /* Find the edges */
 
     /* Find the necrotic boundaries */
     // startTime = Date.now();
@@ -111,26 +118,11 @@ class LeafDiskImage {
     // console.log(`setNecroticBoundaries: ${Date.now() - startTime}`);
 
 
-    // console.log('this.leafDiskEdges:');
-    // console.log(this.leafDiskEdges);
+    console.log('this.rows:');
+    console.log(this.rows);
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  // Return a base64 data url encoding of the found edges converted to a visualization
+  // Return a base64 data url encoding of the processed image converted to a visualization
   getHighlightedImage() {
     return pixelsToBase64(this.pixels, (pixel) => {
       let color = {r: pixel.r, g: pixel.g, b: pixel.b};
@@ -184,7 +176,7 @@ class LeafDiskImage {
   }
 
   // Mark blob borders on the image
-  markBlobBorders() {
+  labelBlobBorders() {
     for (const blob of this.leafDiskBlobs) {
       // Top and bottom box
       for (let col = blob.left; col <= blob.right; col++) {
@@ -200,40 +192,95 @@ class LeafDiskImage {
     }
   }
 
+  // Group the leaf disks into sorted rows
+  setLeafDiskRows() {
+    this.rows = [];
 
+    for (const blob of this.leafDiskBlobs) {
+      let blobRowAssigned = false;
 
+      this.rows.forEach((row, i) => {
+        const blobVerticalMiddle = blob.centerCoordinates().centerRow;
 
-
-
-  calculateTriangleScore(edge) {
-    const radius = 94;
-    let necroticCount = 0;
-    const centerRow = (edge.top + edge.bottom)/2;
-    const centerCol = (edge.left + edge.right)/2;
-
-    // Counts of how many necrotic pixels are at each distance from the disk edge
-    let countEdgeDistances = new Array(radius).fill(0)
-
-    forEachIJ(edge.top, edge.bottom, edge.left, edge.right, (row, col) => {
-      const pix = this.pixels[row][col];
-
-      if (pix.r > pix.g && pix.r + pix.g < 300) {
-        necroticCount++;
-
-        const roundedDistance = radius - Math.round(this.distance(row, col, centerRow, centerCol));
-
-        if (roundedDistance < radius) {
-          countEdgeDistances[roundedDistance]++;
+        if (!blobRowAssigned && row[0].top < blobVerticalMiddle && row[0].bottom > blobVerticalMiddle) {
+          blobRowAssigned = true;
+          blob.rowGroup = i;
+          row.push(blob);
         }
+      });
+
+      // Create a new row if it didn't match any existing ones
+      if (!blobRowAssigned) {
+        blob.rowGroup = this.rows.length;
+        this.rows.push([blob]);
       }
+    }
+
+    // Ensure blobs within each row are sorted
+    for (const row of this.rows) {
+      row.sort((a, b) => a.left - b.left);
+    }
+
+    // Label the row marker pixels for use in the highlighted image
+    this.labelRowGroups();
+  }
+
+  // Add corner markers to each blob to indicate which row it got grouped into
+  labelRowGroups() {
+    for (const blob of this.leafDiskBlobs) {
+      this.labelRowMarkerBlocks(blob, blob.rowGroup + 1);
+    }
+  }
+
+  // Draw the corner blocks for a single blob
+  labelRowMarkerBlocks(blob, number) {
+    const blockSize = Math.round((blob.bottom-blob.top)/10);
+
+    // Top left (1s)
+    if (number%2 == 1) {
+      this.labelRowMarkerPixels(blob.top, blob.left, blockSize);
+    }
+    // Top right (2s)
+    if (Math.floor(number/2)%2) {
+      this.labelRowMarkerPixels(blob.top, blob.right-blockSize, blockSize);
+    }
+    // Bottom left (4s)
+    if (Math.floor(number/4)%2) {
+      this.labelRowMarkerPixels(blob.bottom-blockSize, blob.left, blockSize);
+    }
+    // Bottom right (8s)
+    if (Math.floor(number/8)%2) {
+      this.labelRowMarkerPixels(blob.bottom-blockSize, blob.right-blockSize, blockSize);
+    }
+  }
+
+  // Set row marker pixels starting at the given coordinates
+  labelRowMarkerPixels(startRow, startCol, size) {
+    const endRow = startRow + size;
+    const endCol = startCol + size;
+
+    forEachIJ(startRow, endRow, startCol, endCol, (row, col) => {
+      this.pixels[row][col].isRowMarker = true;
     });
+  }
 
-    edge.necroticCount = necroticCount;
-    edge.countEdgeDistances = countEdgeDistances;
+  // Calculate the "Triangle Score" for each leaf disk (for the single solution test)
+  calculateTriangleScore(blob) {
+    const radius = Math.round(blob.radius());
+    const {centerRow, centerCol} = blob.centerCoordinates();
 
-    console.log('calculateTriangleScore')
-    console.log(countEdgeDistances)
+    // Counts of how many necrotic pixels are at each distance from the disk blob
+    let countEdgeDistances = new Array(radius).fill(0);
 
+    // For each necrotic pixel, increment the count of its distance
+    for (const {row, col} of blob.necroticCoordinates) {
+      // The distance from the edge of the disk
+      const roundedDistance = radius - Math.round(distance(row, col, centerRow, centerCol));
+
+      if (roundedDistance < radius) countEdgeDistances[roundedDistance]++;
+    }
+
+    // Remove the head and tail to get just the gradient portion
     const maxCount = Math.max(...countEdgeDistances);
     const startI = countEdgeDistances.findIndex(c => c === maxCount);
     countEdgeDistances = countEdgeDistances.slice(startI);
@@ -242,15 +289,13 @@ class LeafDiskImage {
     const endI = countEdgeDistances.findIndex(c => c < minCountCutoff);
     countEdgeDistances = countEdgeDistances.slice(0, endI);
 
-    console.log(maxCount)
-    console.log(startI)
-    console.log(countEdgeDistances)
-
+    // Calculate the linear regression
     const linReg = this.linearRegression(countEdgeDistances.map((c, i) => ({x: i, y: c})));
     const xIntercept = -linReg.yIntercept/linReg.slope;
 
-    edge.linReg = linReg;
-    edge.triangleScore = xIntercept*linReg.yIntercept/2;
+    // Set the values on the blob
+    blob.linearRegression = linReg;
+    blob.triangleScore = xIntercept*linReg.yIntercept/2;
   }
 
   // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
@@ -297,75 +342,18 @@ class LeafDiskImage {
     return 1 - (regressionSquaredError/totalSquaredError);
   }
 
-  setLeafDiskRows() {
-    this.rows = [];
 
-    for (const edge of this.leafDiskEdges) {
-      let edgeRowAssigned = false;
 
-      this.rows.forEach((row, i) => {
-        const edgeVerticalMiddle = (edge.top + edge.bottom)/2;
 
-        if (!edgeRowAssigned && row[0].top < edgeVerticalMiddle && row[0].bottom > edgeVerticalMiddle) {
-          edgeRowAssigned = true;
-          edge.rowGroup = i;
-          row.push(edge);
-        }
-      });
 
-      // Create a new row if it didn't match any existing ones
-      if (!edgeRowAssigned) {
-        edge.rowGroup = this.rows.length;
-        this.rows.push([edge]);
-      }
-    }
 
-    for (const row of this.rows) {
-      row.sort((a, b) => a.left - b.left);
-    }
 
-    // Label the row marker pixels for use in the highlighted image
-    this.labelRowGroups();
-  }
 
-  // Add corner markers to each blob to indicate which row it got grouped into
-  labelRowGroups() {
-    for (const edge of this.leafDiskEdges) {
-      this.setRowMarkerBlocks(edge, edge.rowGroup + 1);
-    }
-  }
 
-  // Draw the corner blocks for a single blob
-  setRowMarkerBlocks(edge, number) {
-    const blockSize = Math.round((edge.bottom-edge.top)/10);
 
-    // Top left (1s)
-    if (number%2 == 1) {
-      this.setRowMarkerPixels(edge.top, edge.left, blockSize);
-    }
-    // Top right (2s)
-    if (Math.floor(number/2)%2) {
-      this.setRowMarkerPixels(edge.top, edge.right-blockSize, blockSize);
-    }
-    // Bottom left (4s)
-    if (Math.floor(number/4)%2) {
-      this.setRowMarkerPixels(edge.bottom-blockSize, edge.left, blockSize);
-    }
-    // Bottom right (8s)
-    if (Math.floor(number/8)%2) {
-      this.setRowMarkerPixels(edge.bottom-blockSize, edge.right-blockSize, blockSize);
-    }
-  }
 
-  // Set row marker pixels starting at the given coordinates
-  setRowMarkerPixels(startRow, startCol, size) {
-    const endRow = startRow + size;
-    const endCol = startCol + size;
 
-    forEachIJ(startRow, endRow, startCol, endCol, (row, col) => {
-      this.pixels[row][col].isRowMarker = true;
-    });
-  }
+
 
   // Find the best fit circles for the necrotic boundaries and set the necrotic width for each one
   setNecroticWidths() {
@@ -452,12 +440,14 @@ class LeafDiskImage {
 /* ============================================== */
 class PixelBlob {
   // Initialize with a single pixel
-  constructor(row, col) {
-    this.top = row;
-    this.bottom = row;
-    this.left = col;
-    this.right = col;
-    this.coordinates = [{row: row, col: col}];
+  // Initialize borders to +/- Infinity so that they will be overwritten when a pixel is added
+  constructor() {
+    this.top = Infinity;
+    this.bottom = -Infinity;
+    this.left = Infinity;
+    this.right = -Infinity;
+    this.coordinates = [];
+    this.necroticCoordinates = [];
   }
 
   // Returns true if the coordinates are contained by or adjacent to the blob
@@ -469,17 +459,16 @@ class PixelBlob {
   }
 
   // Adjust the boundaries if necessary and add the coordinates to the array
-  addPixel(row, col) {
-    if (!this.touches(row, col)) throw 'Pixel does not touch the blob';
-
+  addPixel(row, col, isNecrotic) {
     // Update the boundaries if necessary
     if (this.top > row) this.top = row;
     if (this.bottom < row) this.bottom = row;
     if (this.left > col) this.left = col;
     if (this.right < col) this.right = col;
 
-    // Add the pixel to the coordinates array
+    // Add the pixel to the coordinates arrays
     this.coordinates.push({row: row, col: col});
+    if (isNecrotic) this.necroticCoordinates.push({row: row, col: col});
   }
 
   // Merge the blob into this one
@@ -507,6 +496,11 @@ class PixelBlob {
   // Returns the radius of the blob
   radius() {
     return (this.height() + this.width())/4;
+  }
+
+  // Returns the center coordinates of the blob
+  centerCoordinates() {
+    return {centerRow: (this.bottom + this.top)/2, centerCol: (this.right + this.left)/2};
   }
 
   // Returns true if the blob's height and width are roughly equal,
