@@ -25,7 +25,8 @@ window.onload = function() {
     document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
 
     // Set CSV files for download
-    image.createDiskDataCsv('diskDataCsv');
+    image.createDiskDataCsv('necroticGradientScore', 'necroticGradientScoresCsv');
+    image.createDiskDataCsv('necroticWidthPercentage', 'necroticWidthPercentagesCsv');
 
     console.log(`Total time: ${Date.now() - startTime}`);
     console.log('Leaf disk rows:');
@@ -101,7 +102,7 @@ class LeafDiskImage {
 
     /* Calculate the scores */
     for (const blob of this.leafDiskBlobs) {
-      this.calculateTriangleScore(blob);
+      this.calculatenecroticGradientScore(blob);
     }
 
     this.setNecroticWidths();
@@ -129,7 +130,7 @@ class LeafDiskImage {
   }
 
   // Create a csv of the individual leaf disk data and add it to the download button
-  createDiskDataCsv(downloadLinkId) {
+  createDiskDataCsv(dataName, downloadLinkId) {
     const data = [];
 
     // Create a header row with numbers for each column
@@ -138,10 +139,10 @@ class LeafDiskImage {
     data.push(headers + ',Average');
 
     this.rows.forEach((row, i) => {
-      const triangleScores = row.map(e => e.triangleScore);
-      const avgTriangleScore = average(triangleScores).toFixed(4);
+      const values = row.map(e => e[dataName]);
+      const avgValue = average(values).toFixed(4);
 
-      data.push([i, ...triangleScores.map(p => p.toFixed(4)), avgTriangleScore].join(','));
+      data.push([i, ...values.map(p => p.toFixed(4)), avgValue].join(','));
     });
 
     this.setCsvLink(downloadLinkId, 'leaf_disk_data.csv', data);
@@ -254,8 +255,8 @@ class LeafDiskImage {
     this.avgRadius = average(radii);
   }
 
-  // Calculate the "Triangle Score" for each leaf disk (for the single solution test)
-  calculateTriangleScore(blob) {
+  // Calculate the "Gradient Score" for each leaf disk (for the single solution test)
+  calculatenecroticGradientScore(blob) {
     const radius = Math.round(this.avgRadius);
     const {centerRow, centerCol} = blob.centerCoordinates();
 
@@ -285,7 +286,7 @@ class LeafDiskImage {
 
     // Set the values on the blob
     blob.linearRegression = linReg;
-    blob.triangleScore = xIntercept*linReg.yIntercept/2;
+    blob.necroticGradientScore = xIntercept*linReg.yIntercept/2;
   }
 
   // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/

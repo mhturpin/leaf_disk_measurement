@@ -8,13 +8,15 @@
     <h1>Process Leaf Disk Image</h1>
     <div>
       <p>
-        To use this program, upload an image that is 3" wide with leaf disks that are 5/8". The program uses these values to determine what is a leaf disk and what isn't. There is more information about how it works at the bottom of the page. If you run into any issues, such the circle being in the wrong location, leaf disks not being identified, or rows not grouping properly, please let me know. Thank you!
+        To use this program, upload your scanned leaf disk image. There is more information about how it works at the bottom of the page.
       </p>
       <label for="imageUpload">Choose an image:</label>
       <input type="file" id="imageUpload" name="imageUpload" accept="image/*">
     </div>
     <div>
-      <a id="diskDataCsv"><button>Download leaf disk data CSV</button></a>
+      <p>CSV Downloads:</p>
+      <a id="necroticGradientScoresCsv"><button>Necrotic Gradient Scores</button></a>
+      <a id="necroticWidthPercentagesCsv"><button>Necrotic Width Percentages</button></a>
     </div>
 
     <div style="position: relative">
@@ -33,7 +35,6 @@
 
     <div>
       <h2>Necrotic Width Percentage Linear Regression</h2>
-      <div id="susceptibilityGraphWidth" style="position: relative; display: inline-block; height: 300px; width: 500px; margin: 20px"></div>
       <div id="linearRegressionWidth" style="display: inline-block; vertical-align: top">
         <p>Slope:</p>
         <p class="slope"></p>
@@ -50,22 +51,32 @@
         <ul>
           <li>The black outlines indicate what portions of the image were identified as leaf disks.</li>
           <li>The solid black squares in the corners indicate which row the leaf disk got grouped into. All leaf disks in the same row have the same markings.</li>
-          <li>The necrotic pixels have been tinted red, and the live pixels have been tinted green.</li>
-          <li>The white circle is what the program determined to be the best fit circle for the line between live and necrotic tissue.</li>
-          <li>The pink pixels are what the program determined to be the edge between live an necrotic tissue.</li>
+          <li>The necrotic pixels have been turned red, and the live pixels have been turned green.</li>
+          <li>The white circle is what the program determined to be the best fit circle for the line between live and necrotic tissue. This circle is only relevant to the slope score.</li>
         </ul>
       </p>
       <p>
-
         What the algorithm does:
         <ol>
           <li>Extract the pixel data from the uploaded image.</li>
-          <li>Find all the connected light/dark edges in the images using my implementation of the <a href="https://en.wikipedia.org/wiki/Canny_edge_detector">Canny edge detector</a>.</li>
-          <li>Determine what is a leaf disk based on if the maximum left/right/top/bottom of the connected edge form roughly a square and are approximately the right diameter.</li>
-          <li>Calculate the average diameter of the leaf disks in pixels. This will be used later and should be more accurate than using the width of the scanned image as the reference.</li>
-          <li>Find the necrotic boundary for each leaf disk. Use the edge detector, but with the value as high if r > g and for the background, otherwise low. Since the r > g filter can be noisy, set any "live" pixels to "necrotic" if the pixels around them are mostly necrotic before doing the edge detection.</li>
-          <li>Find the best fit circles for the necrotic boundaries. The best fit circle is the most common edge pixel distance from the center of the disk.</li>
-          <li>Calculate the necrotic width.</li>
+          <li>Find all the blobs of connected dark pixels.</li>
+          <li>Determine which blobs are leaf disks based on if the dimensions of each blob form roughly a square and if the blob has approximately the expected number of dark pixels to be a circle.</li>
+          <li>
+            Calculate the necrotic gradient scores:
+            <ul>
+              <li>Count how many necrotic pixels are at each distance from the center of the leaf disk.</li>
+              <li>Isolate just the counts representing the gradient portion.</li>
+              <li>Do a linear regression on those counts.</li>
+              <li>Calculate the area under the line. This is the score.</li>
+            </ul>
+          </li>
+          <li>
+            Calculate the slope score:
+            <ul>
+              <li>Find the best fit circles for the necrotic boundaries. This is the most common edge pixel distance from the center of the disk.</li>
+              <li>Calculate the necrotic width by subtracting the best fit circle radius from the average leaf disk radius.</li>
+            </ul>
+          </li>
           <li>Display the highlighted image.</li>
         </ol>
       </p>
