@@ -273,7 +273,7 @@ class LeafDiskImage {
       // The distance from the edge of the disk
       const roundedDistance = radius - Math.round(distance(row, col, centerRow, centerCol));
 
-      if (roundedDistance < radius) countEdgeDistances[roundedDistance]++;
+      if (roundedDistance >= 0 && roundedDistance < radius) countEdgeDistances[roundedDistance]++;
     }
 
     // Remove the head and tail to get just the gradient portion
