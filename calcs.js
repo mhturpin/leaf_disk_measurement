@@ -281,7 +281,7 @@ class LeafDiskImage {
     const startI = countEdgeDistances.findIndex(c => c === maxCount);
     countEdgeDistances = countEdgeDistances.slice(startI);
     // Use 20% of the max to cut off the tail, or 10% of the radius so that it doesn't use counts that are just noise
-    const minCountCutoff = Math.max(maxCount*0.2, radius/10);
+    const minCountCutoff = Math.max(maxCount*0.2, radius*0.1);
     const endI = countEdgeDistances.findIndex(c => c < minCountCutoff);
     countEdgeDistances = countEdgeDistances.slice(0, endI);
 
