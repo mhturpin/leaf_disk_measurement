@@ -29,9 +29,11 @@ window.onload = function() {
     image.createDiskDataCsv('necroticWidthPercentage', 'necroticWidthPercentagesCsv');
 
     // Display slope score
-    setText('slope', image.slopeScoreLinearRegression.slope.toFixed(2));
-    setText('yIntercept', image.slopeScoreLinearRegression.yIntercept.toFixed(2));
-    setText('rSquared', image.slopeScoreLinearRegression.rSquared.toFixed(2));
+    if (image.slopeScoreLinearRegression !== undefined) {
+      setText('slope', image.slopeScoreLinearRegression.slope.toFixed(2));
+      setText('yIntercept', image.slopeScoreLinearRegression.yIntercept.toFixed(2));
+      setText('rSquared', image.slopeScoreLinearRegression.rSquared.toFixed(2));
+    }
 
     console.log(`Total time: ${Date.now() - startTime}`);
     console.log('Leaf disk rows:');
@@ -282,8 +284,8 @@ class LeafDiskImage {
     const startI = Math.round(radius*0.02);
     countEdgeDistances = countEdgeDistances.slice(startI);
 
-    // Cut off the noise in the center by using 20% of the radius as the minimum count
-    const minCountCutoff = this.avgRadius*0.2/scaleFactor;
+    // Cut off the noise in the center by using 20% of the max value as the minimum count
+    const minCountCutoff = Math.max(...countEdgeDistances)*0.2;
     const endI = countEdgeDistances.findIndex(c => c < minCountCutoff);
     countEdgeDistances = countEdgeDistances.slice(0, endI);
 
@@ -371,8 +373,7 @@ class LeafDiskImage {
   calculateSlopeScore() {
     if (this.rows.length !== 4) {
       console.log('Wrong number of rows, not calculating slope score.');
-      const message = "Couldn't be calculated";
-      return {slope: message, yIntercept: message, message};
+      return;
     }
 
     const logConcentrations = [Math.log10(8), Math.log10(12), Math.log10(14), Math.log10(16)];
