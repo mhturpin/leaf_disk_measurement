@@ -278,8 +278,8 @@ class LeafDiskImage {
     }
 
     // Get rid of low counts from the very edge of the disk by removing 2% from the front
-    const startI = radius*0.02;
-    countEdgeDistances = countEdgeDistances.slice(2);
+    const startI = Math.round(radius*0.02);
+    countEdgeDistances = countEdgeDistances.slice(startI);
 
     // Cut off the noise in the center by using 20% of the radius as the minimum count
     const minCountCutoff = radius*0.2;
