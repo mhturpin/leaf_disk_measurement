@@ -262,7 +262,8 @@ class LeafDiskImage {
 
   // Calculate the "Gradient Score" for each leaf disk (for the single solution test)
   calculateNecroticGradientScore(blob) {
-    const scaleFactor = 1;
+    // Scale factor increases the resolution of the distance counts
+    const scaleFactor = 2;
     const radius = Math.round(this.avgRadius*scaleFactor);
     const {centerRow, centerCol} = blob.centerCoordinates();
 
@@ -282,7 +283,7 @@ class LeafDiskImage {
     countEdgeDistances = countEdgeDistances.slice(startI);
 
     // Cut off the noise in the center by using 20% of the radius as the minimum count
-    const minCountCutoff = radius*0.2;
+    const minCountCutoff = this.avgRadius*0.2/scaleFactor;
     const endI = countEdgeDistances.findIndex(c => c < minCountCutoff);
     countEdgeDistances = countEdgeDistances.slice(0, endI);
 
