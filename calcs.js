@@ -150,7 +150,7 @@ class LeafDiskImage {
       data.push([i, ...values.map(p => p.toFixed(2)), avgValue].join(','));
     });
 
-    this.setCsvLink(downloadLinkId, 'leaf_disk_data.csv', data);
+    this.setCsvLink(downloadLinkId, `${dataName}s.csv`, data);
   }
 
   // ==============
@@ -262,7 +262,8 @@ class LeafDiskImage {
 
   // Calculate the "Gradient Score" for each leaf disk (for the single solution test)
   calculateNecroticGradientScore(blob) {
-    const radius = Math.round(this.avgRadius);
+    const scaleFactor = 1;
+    const radius = Math.round(this.avgRadius*scaleFactor);
     const {centerRow, centerCol} = blob.centerCoordinates();
 
     // Counts of how many necrotic pixels are at each distance from the disk blob
@@ -271,17 +272,17 @@ class LeafDiskImage {
     // For each necrotic pixel, increment the count of its distance
     for (const {row, col} of blob.necroticCoordinates) {
       // The distance from the edge of the disk
-      const roundedDistance = radius - Math.round(distance(row, col, centerRow, centerCol));
+      const roundedDistance = radius - Math.round(distance(row, col, centerRow, centerCol)*scaleFactor);
 
       if (roundedDistance >= 0 && roundedDistance < radius) countEdgeDistances[roundedDistance]++;
     }
 
-    // Remove the head and tail to get just the gradient portion
-    const maxCount = Math.max(...countEdgeDistances);
-    const startI = countEdgeDistances.findIndex(c => c === maxCount);
-    countEdgeDistances = countEdgeDistances.slice(startI);
-    // Use 20% of the max to cut off the tail, or 10% of the radius so that it doesn't use counts that are just noise
-    const minCountCutoff = Math.max(maxCount*0.2, radius*0.1);
+    // Get rid of low counts from the very edge of the disk by removing 2% from the front
+    const startI = radius*0.02;
+    countEdgeDistances = countEdgeDistances.slice(2);
+
+    // Cut off the noise in the center by using 20% of the radius as the minimum count
+    const minCountCutoff = radius*0.2;
     const endI = countEdgeDistances.findIndex(c => c < minCountCutoff);
     countEdgeDistances = countEdgeDistances.slice(0, endI);
 
