@@ -395,7 +395,6 @@ class LeafDiskImage {
     const a = document.getElementById(id);
     a.href = URL.createObjectURL(file);
     a.download = fileName;
-
   }
 }
 
@@ -413,6 +412,7 @@ class PixelBlob {
     this.right = -Infinity;
     this.coordinates = [];
     this.necroticCoordinates = [];
+    this.liveCoordinates = [];
   }
 
   // Returns true if the coordinates are contained by or adjacent to the blob
@@ -433,7 +433,12 @@ class PixelBlob {
 
     // Add the pixel to the coordinates arrays
     this.coordinates.push({row: row, col: col});
-    if (isNecrotic) this.necroticCoordinates.push({row: row, col: col});
+
+    if (isNecrotic) {
+      this.necroticCoordinates.push({row: row, col: col});
+    } else {
+      this.liveCoordinates.push({row: row, col: col});
+    }
   }
 
   // Merge the blob into this one
@@ -446,6 +451,8 @@ class PixelBlob {
 
     // Merge the coordinate arrays
     this.coordinates = this.coordinates.concat(blob.coordinates);
+    this.necroticCoordinates = this.necroticCoordinates.concat(blob.necroticCoordinates);
+    this.liveCoordinates = this.liveCoordinates.concat(blob.liveCoordinates);
   }
 
   // Returns the height of the blob
@@ -478,11 +485,6 @@ class PixelBlob {
 
     return isSquare && isCorrectNumberOfPixels && this.radius() > 25;
   }
-
-
-  // ==============
-  // Helper methods
-  // ==============
 }
 
 // Calls the function with each row and col for the given ranges
