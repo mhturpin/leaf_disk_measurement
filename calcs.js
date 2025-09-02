@@ -281,8 +281,9 @@ class LeafDiskImage {
     }
 
     // Cut off the noise in the center by using 20% of the max value as the minimum count
-    const minCountCutoff = Math.max(...countEdgeDistances)*0.2;
-    const endI = countEdgeDistances.findIndex(c => c < minCountCutoff);
+    const maxCount = Math.max(...countEdgeDistances);
+    const maxCountI = countEdgeDistances.findIndex(c => c === maxCount);
+    const endI = countEdgeDistances.findIndex((c, i) => c < maxCount*0.2 && i > maxCountI);
     countEdgeDistances = countEdgeDistances.slice(0, endI);
 
     // Calculate the linear regression
