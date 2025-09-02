@@ -266,7 +266,7 @@ class LeafDiskImage {
   calculateNecroticGradientScore(blob) {
     // Scale factor increases the resolution of the distance counts
     const scaleFactor = 2;
-    const radius = Math.round(this.avgRadius*scaleFactor);
+    const radius = Math.round(blob.radius()*scaleFactor);
     const {centerRow, centerCol} = blob.centerCoordinates();
 
     // Counts of how many necrotic pixels are at each distance from the disk blob
