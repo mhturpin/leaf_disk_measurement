@@ -70,7 +70,7 @@ class LeafDiskImage {
       if ((pixel.r + pixel.g) < 300) {
         // Mark the pixel as attributes
         pixel.isDark = true;
-        pixel.isNecrotic = pixel.r > pixel.g;
+        pixel.isNecrotic = 1.5*pixel.r > pixel.g;
 
         // Find blobs that touch the pixel
         const indices = this.findTouchingBlobIndices(row, col);
@@ -113,6 +113,7 @@ class LeafDiskImage {
 
     this.setNecroticWidths();
     this.slopeScoreLinearRegression = this.calculateSlopeScore();
+    this.calculatePairSlopeScores();
   }
 
   // Return a base64 data url encoding of the processed image converted to a visualization
@@ -364,6 +365,32 @@ class LeafDiskImage {
 
       this.pixels[row][col].isBestFitCircle = true;
     }
+  }
+
+  calculatePairSlopeScores() {
+    const logConcentrations = [Math.log10(8), Math.log10(16)];
+    const pairScores = [',Leaf 1,Leaf 2,Leaf 3,Average'];
+
+    for (let i = 0; i < this.rows.length; i += 2) {
+      const necroticRates1 = this.rows[i].map(blob => this.calculateNecroticRate(blob));
+      const necroticRates2 = this.rows[i+1].map(blob => this.calculateNecroticRate(blob));
+      let rowPairScores = [];
+
+      necroticRates1.forEach((rate, j) => {
+        const point1 = {x: logConcentrations[0], y: rate};
+        const point2 = {x: logConcentrations[1], y: necroticRates2[j]};
+
+        rowPairScores.push(linearRegression([point1, point2]).slope);
+      });
+
+      rowPairScores.push(average(rowPairScores));
+      rowPairScores = rowPairScores.map(s => s.toFixed(3));
+      rowPairScores.unshift(`Tree ${i/2}`);
+
+      pairScores.push(rowPairScores.join(','));
+    }
+
+    this.setCsvLink('pairScoresCsv', 'pairScores.csv', pairScores);
   }
 
   // Returns the slope score for the card
