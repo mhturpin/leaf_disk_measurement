@@ -22,14 +22,15 @@ window.onload = function() {
       await image.processImage();
 
       // Add the score to the csv
-      results.push([
-        file.name,
-        image.slopeScoreLinearRegression.slope.toFixed(2),
-        image.slopeScoreLinearRegression.rSquared.toFixed(2)
-      ].join(','));
+      if (image.slopeScoreLinearRegression !== undefined) {
+        results.push([
+          file.name,
+          image.slopeScoreLinearRegression.slope.toFixed(2),
+          image.slopeScoreLinearRegression.rSquared.toFixed(2)
+        ].join(','));
+      }
 
       // Show highlighted image
-      // document.querySelector('img#highlightedImage').src = image.getEdgeImage();
       document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
 
       // Set CSV files for download
@@ -131,10 +132,10 @@ class LeafDiskImage {
       let color = {r: pixel.r, g: pixel.g, b: pixel.b};
 
       // Mark dark pixels green
-      if (pixel.isDark) color = {r: 0, g: 255, b: 0};
-
-      // Mark necrotic pixels red
-      if (pixel.isNecrotic) color = {r: 255, g: 0, b: 0};
+      if (pixel.isDark) {
+        const value = (pixel.r - pixel.g + 50)*255/100;
+        color = {r: value, g: value, b: value};
+      }
 
       // Mark leaf disk boxes and row markers black
       if (pixel.isLeafDiskBox || pixel.isRowMarker) color = {r: 0, g: 0, b: 0};
