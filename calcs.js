@@ -14,30 +14,41 @@
 
 window.onload = function() {
   document.querySelector('input#imageUpload').onchange = async (e) => {
-    const startTime = Date.now();
+    const results = ['File Name,Slope Score,R Squared'];
 
-    // Process image
-    image = new LeafDiskImage(e.target.files[0]);
-    await image.processImage();
+    for (const file of e.target.files) {
+      // Process image
+      image = new LeafDiskImage(file);
+      await image.processImage();
 
-    // Show highlighted image
-    // document.querySelector('img#highlightedImage').src = image.getEdgeImage();
-    document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
+      // Add the score to the csv
+      results.push([
+        file.name,
+        image.slopeScoreLinearRegression.slope.toFixed(2),
+        image.slopeScoreLinearRegression.rSquared.toFixed(2)
+      ].join(','));
 
-    // Set CSV files for download
-    image.createDiskDataCsv('rgDiffAvgSum', 'rgDiffAvgSumsCsv');
+      // Show highlighted image
+      // document.querySelector('img#highlightedImage').src = image.getEdgeImage();
+      document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
 
-    // Display slope score
-    if (image.slopeScoreLinearRegression !== undefined) {
-      setText('slope', image.slopeScoreLinearRegression.slope.toFixed(2));
-      setText('yIntercept', image.slopeScoreLinearRegression.yIntercept.toFixed(2));
-      setText('rSquared', image.slopeScoreLinearRegression.rSquared.toFixed(2));
+      // Set CSV files for download
+      image.createDiskDataCsv('rgDiffAvgSum', 'rgDiffAvgSumsCsv');
+
+      // Display slope score
+      if (image.slopeScoreLinearRegression !== undefined) {
+        setText('slope', image.slopeScoreLinearRegression.slope.toFixed(2));
+        setText('yIntercept', image.slopeScoreLinearRegression.yIntercept.toFixed(2));
+        setText('rSquared', image.slopeScoreLinearRegression.rSquared.toFixed(2));
+      }
+
+      console.log('Leaf disk rows:');
+      console.log(image.rows);
+      console.log(`Average radius: ${image.avgRadius}`);
     }
 
-    console.log(`Total time: ${Date.now() - startTime}`);
-    console.log('Leaf disk rows:');
-    console.log(image.rows);
-    console.log(`Average radius: ${image.avgRadius}`);
+    // Create the csv download for all the slope scores
+    setCsvLink('slopeScoresCsv', `slopeScores.csv`, results);
   }
 }
 
@@ -151,7 +162,7 @@ class LeafDiskImage {
       data.push([i, ...values.map(p => p.toFixed(2)), avgValue].join(','));
     });
 
-    this.setCsvLink(downloadLinkId, `${dataName}s.csv`, data);
+    setCsvLink(downloadLinkId, `${dataName}s.csv`, data);
   }
 
   // ==============
@@ -287,13 +298,6 @@ class LeafDiskImage {
     const minAvg = minSum/pixelCounts[minSumI];
     diffAvgs = diffAvgs.map(s => s - minAvg);
 
-    console.log(diffAvgs.slice(minSumI))
-    console.log(sum(diffAvgs.slice(minSumI)));
-
-    // console.log('data')
-    // console.log(rgDiffSums)
-    // console.log(diffAvgs)
-
     blob.rgDiffAvgSum = sum(diffAvgs.slice(minSumI));
   }
 
@@ -329,7 +333,7 @@ class LeafDiskImage {
       pairScores.push(rowPairScores.join(','));
     }
 
-    this.setCsvLink('pairScoresCsv', 'pairScores.csv', pairScores);
+    setCsvLink('pairScoresCsv', 'pairScores.csv', pairScores);
   }
 
   // Returns the slope score for the card
@@ -348,20 +352,7 @@ class LeafDiskImage {
       rgDiffAvgSumData.push({x: logConcentrations[i], y: average(row.map(blob => blob.rgDiffAvgSum))});
     });
 
-    const rgLinReg = linearRegression(rgDiffAvgSumData);
-    console.log('rgDiffAvgSumData');
-    console.log(rgLinReg.slope.toFixed(3));
-    console.log(rgLinReg.rSquared.toFixed(3));
-
     return linearRegression(rgDiffAvgSumData);
-  }
-
-  // Create a csv and make it the href for the download button identified by id
-  setCsvLink(id, fileName, data) {
-    const file = new Blob([data.join('\n')], {type: 'text/csv'});
-    const a = document.getElementById(id);
-    a.href = URL.createObjectURL(file);
-    a.download = fileName;
   }
 }
 
@@ -628,4 +619,12 @@ function pixelsToBase64(pixels, transformation) {
 // Set the text of an element
 function setText(id, text) {
   document.getElementById(id).textContent = text;
+}
+
+// Create a csv and make it the href for the download button identified by id
+function setCsvLink(id, fileName, data) {
+  const file = new Blob([data.join('\n')], {type: 'text/csv'});
+  const a = document.getElementById(id);
+  a.href = URL.createObjectURL(file);
+  a.download = fileName;
 }

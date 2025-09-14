@@ -11,12 +11,13 @@
         To use this program, upload your scanned leaf disk image. There is more information about how it works at the bottom of the page.
       </p>
       <label for="imageUpload">Choose an image:</label>
-      <input type="file" id="imageUpload" name="imageUpload" accept="image/*">
+      <input type="file" id="imageUpload" name="imageUpload[]" multiple accept="image/*">
     </div>
     <div>
       <p>CSV Downloads:</p>
       <a id="pairScoresCsv"><button>Slope Pair Scores</button></a>
       <a id="rgDiffAvgSumsCsv"><button>R/G Diff Avg Sum</button></a>
+      <a id="slopeScoresCsv"><button>All Images Slope Scores</button></a>
     </div>
 
     <div style="position: relative">
