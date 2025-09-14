@@ -294,9 +294,10 @@ class LeafDiskImage {
         }
 
         // Increment the counts
+        const pixel = this.pixels[row][col];
         pixelCounts[roundedDistance]++;
-        rgDiffSums[roundedDistance] += this.pixels[row][col].r - this.pixels[row][col].g;
-        necroticValueSums[roundedDistance] += this.pixels[row][col].r + this.pixels[row][col].b - this.pixels[row][col].g;
+        rgDiffSums[roundedDistance] += pixel.r - pixel.g;
+        necroticValueSums[roundedDistance] += pixel.r - pixel.g;
       }
     }
 
