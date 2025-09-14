@@ -25,8 +25,7 @@ window.onload = function() {
     document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
 
     // Set CSV files for download
-    image.createDiskDataCsv('necroticGradientScore', 'necroticGradientScoresCsv');
-    image.createDiskDataCsv('necroticWidthPercentage', 'necroticWidthPercentagesCsv');
+    image.createDiskDataCsv('rgDiffAvgSum', 'rgDiffAvgSumsCsv');
 
     // Display slope score
     if (image.slopeScoreLinearRegression !== undefined) {
@@ -67,10 +66,10 @@ class LeafDiskImage {
 
       // If the pixel is dark, match it to a blob or create a new one
       // If it touches two blobs, merge them
-      if ((pixel.r + pixel.g) < 300) {
+      if ((pixel.r + pixel.g + pixel.b) < 600) {
         // Mark the pixel as attributes
         pixel.isDark = true;
-        pixel.isNecrotic = 1.5*pixel.r > pixel.g;
+        pixel.isNecrotic = pixel.r > pixel.g;
 
         // Find blobs that touch the pixel
         const indices = this.findTouchingBlobIndices(row, col);
@@ -108,10 +107,9 @@ class LeafDiskImage {
 
     /* Calculate the scores */
     for (const blob of this.leafDiskBlobs) {
-      this.calculateNecroticGradientScore(blob);
+      this.calculateDiskScore(blob);
     }
 
-    this.setNecroticWidths();
     this.slopeScoreLinearRegression = this.calculateSlopeScore();
     this.calculatePairSlopeScores();
   }
@@ -263,128 +261,69 @@ class LeafDiskImage {
     this.avgRadius = average(radii);
   }
 
-  // Calculate the "Gradient Score" for each leaf disk (for the single solution test)
-  calculateNecroticGradientScore(blob) {
-    // Scale factor increases the resolution of the distance counts
-    const scaleFactor = 2;
-    const radius = Math.round(blob.radius()*scaleFactor);
+  // Calculate the score for each leaf disk (for the single solution test)
+  calculateDiskScore(blob) {
+    const radius = Math.round(blob.radius()*1.1);
     const {centerRow, centerCol} = blob.centerCoordinates();
+    const rgDiffSums = new Array(radius).fill(0);
+    const pixelCounts = new Array(radius).fill(0);
 
-    // Counts of how many necrotic pixels are at each distance from the disk blob
-    let countEdgeDistances = new Array(radius).fill(0);
+    // Sum up the red green differences for each pixel in the leaf disk
+    for (const {row, col} of blob.coordinates) {
+      // The distance from the center of the disk
+      const roundedDistance = Math.round(distance(row, col, centerRow, centerCol));
 
-    // For each necrotic pixel, increment the count of its distance
-    for (const {row, col} of blob.necroticCoordinates) {
-      // The distance from the edge of the disk
-      const roundedDistance = radius - Math.round(distance(row, col, centerRow, centerCol)*scaleFactor);
-
-      if (roundedDistance >= 0 && roundedDistance < radius) countEdgeDistances[roundedDistance]++;
-    }
-
-    // Cut off the noise in the center by using 20% of the max value as the minimum count
-    const maxCount = Math.max(...countEdgeDistances);
-    const maxCountI = countEdgeDistances.findIndex(c => c === maxCount);
-    const endI = countEdgeDistances.findIndex((c, i) => c < maxCount*0.2 && i > maxCountI);
-    countEdgeDistances = countEdgeDistances.slice(0, endI);
-
-    // Calculate the linear regression
-    const linReg = linearRegression(countEdgeDistances.map((c, i) => ({x: i, y: c})));
-    const xIntercept = -linReg.yIntercept/linReg.slope;
-
-    // Set the values on the blob
-    blob.necroticGradientLinearRegression = linReg;
-    blob.necroticGradientScore = xIntercept*linReg.yIntercept/2;
-  }
-
-  // Find the best fit circles for the necrotic boundaries and set the necrotic width for each one
-  setNecroticWidths() {
-    for (const blob of this.leafDiskBlobs) {
-      this.findBestFitCircle(blob);
-    }
-  }
-
-  // Find the cicles that best fit the line between live and necrotic tissue
-  findBestFitCircle(blob) {
-    // Create an array of all the distances of necrotic edge pixels from the center
-    const {centerRow, centerCol} = blob.centerCoordinates();
-    const necroticEdgeCoordinates = blob.necroticCoordinates.filter(({row, col}) => this.isNecroticEdge(row, col));
-
-    const distances = necroticEdgeCoordinates.map(({row, col}) => distance(row, col, centerRow, centerCol));
-    distances.sort((a, b) => a - b);
-
-    // Count distances within +/- 1% of each integer
-    const radius = Math.round(this.avgRadius);
-    const distanceGroups = new Array(radius).fill(0);
-    const groupTolerance = Math.round(this.avgRadius*0.01);
-
-    for (const d of distances) {
-      const roundedDistance = Math.round(d);
-      const start = roundedDistance - groupTolerance;
-      const end = roundedDistance + groupTolerance;
-
-      for (let i = start; i <= end; i++) {
-        if (i < radius) distanceGroups[i]++;
+      if (roundedDistance >= 0 && roundedDistance < radius) {
+        pixelCounts[roundedDistance]++;
+        rgDiffSums[roundedDistance] += this.pixels[row][col].r - this.pixels[row][col].g;
       }
     }
 
-    // Find the distance group with the most members, this is our base value
-    // The group with the most members will be the best fit circle
-    const maxCount = Math.max(...distanceGroups);
-    const mostCommonDistance = distanceGroups.findIndex(c => c === maxCount);
+    // The minimum sum is the extent of necrotic damage
+    // Because red < green in live tissue, the sum increases towards the center because there are fewer pixels
+    const minSum = Math.min(...rgDiffSums);
+    const minSumI = rgDiffSums.findIndex(s => s === minSum);
+    let diffAvgs = rgDiffSums.map((s, i) => s/pixelCounts[i]);
+    const minAvg = minSum/pixelCounts[minSumI];
+    diffAvgs = diffAvgs.map(s => s - minAvg);
 
-    // Average all the actual pixel distances within the group to get a more accurate value
-    const bestFitDistances = distances.filter(d => d > mostCommonDistance - groupTolerance && d < mostCommonDistance + groupTolerance);
+    console.log(diffAvgs.slice(minSumI))
+    console.log(sum(diffAvgs.slice(minSumI)));
 
-    blob.liveRadius = average(bestFitDistances);
-    blob.necroticWidth = this.avgRadius - blob.liveRadius;
-    blob.necroticWidthPercentage = 100*blob.necroticWidth/this.avgRadius;
+    // console.log('data')
+    // console.log(rgDiffSums)
+    // console.log(diffAvgs)
 
-    // Set the best fit circle for the highlighted image
-    this.setBestFitCircle(blob.liveRadius, centerRow, centerCol);
-  }
-
-  // Return true if the pixel borders any dark pixels that are not necrotic
-  isNecroticEdge(row, col) {
-    for (let i = row-1; i <= row+1; i++) {
-      for (let j = col-1; j <= col+1; j++) {
-        const pixel = this.pixels[i][j];
-        if (!pixel.isNecrotic && pixel.isDark) return true;
-      }
-    }
-
-    return false;
-  }
-
-  // Mark the best fit circle with radius r and center row, col
-  setBestFitCircle(r, centerRow, centerCol) {
-    const steps = 1000;
-
-    for (var i = 0; i < steps; i++) {
-      const row = Math.round(centerRow + r*Math.sin(2*Math.PI*i/steps));
-      const col = Math.round(centerCol + r*Math.cos(2*Math.PI*i/steps));
-
-      this.pixels[row][col].isBestFitCircle = true;
-    }
+    blob.rgDiffAvgSum = sum(diffAvgs.slice(minSumI));
   }
 
   calculatePairSlopeScores() {
+    if (this.rows.length%2 !== 0) {
+      console.log('Wrong number of rows, not calculating slope score.');
+      return;
+    }
+
     const logConcentrations = [Math.log10(8), Math.log10(16)];
     const pairScores = [',Leaf 1,Leaf 2,Leaf 3,Average'];
 
     for (let i = 0; i < this.rows.length; i += 2) {
-      const necroticRates1 = this.rows[i].map(blob => this.calculateNecroticRate(blob));
-      const necroticRates2 = this.rows[i+1].map(blob => this.calculateNecroticRate(blob));
+      const rgDiffAvgSums1 = this.rows[i].map(blob => blob.rgDiffAvgSum);
+      const rgDiffAvgSums2 = this.rows[i+1].map(blob => blob.rgDiffAvgSum);
       let rowPairScores = [];
 
-      necroticRates1.forEach((rate, j) => {
+      rgDiffAvgSums1.forEach((rate, j) => {
         const point1 = {x: logConcentrations[0], y: rate};
-        const point2 = {x: logConcentrations[1], y: necroticRates2[j]};
+        const point2 = {x: logConcentrations[1], y: rgDiffAvgSums2[j]};
 
+        // Add the score for each disk pair to the csv
         rowPairScores.push(linearRegression([point1, point2]).slope);
       });
 
+      // Add the average score to the csv
       rowPairScores.push(average(rowPairScores));
+      // Round scores
       rowPairScores = rowPairScores.map(s => s.toFixed(3));
+      // Add tree number column
       rowPairScores.unshift(`Tree ${i/2}`);
 
       pairScores.push(rowPairScores.join(','));
@@ -401,19 +340,20 @@ class LeafDiskImage {
     }
 
     const logConcentrations = [Math.log10(8), Math.log10(12), Math.log10(14), Math.log10(16)];
-    const data = [];
+    const rgDiffAvgSumData = [];
 
     this.rows.forEach((row, i) => {
-      const necroticRates = row.map(blob => this.calculateNecroticRate(blob));
-      data.push({x: logConcentrations[i], y: average(necroticRates)});
+      // x: log concentration
+      // y: the average value for that concentration
+      rgDiffAvgSumData.push({x: logConcentrations[i], y: average(row.map(blob => blob.rgDiffAvgSum))});
     });
 
-    return linearRegression(data);
-  }
+    const rgLinReg = linearRegression(rgDiffAvgSumData);
+    console.log('rgDiffAvgSumData');
+    console.log(rgLinReg.slope.toFixed(3));
+    console.log(rgLinReg.rSquared.toFixed(3));
 
-  calculateNecroticRate(blob) {
-    const necroticAreaPortion = 1 - (blob.liveRadius**2)/(this.avgRadius**2);
-    return necroticAreaPortion*197.93/23;
+    return linearRegression(rgDiffAvgSumData);
   }
 
   // Create a csv and make it the href for the download button identified by id
@@ -510,7 +450,7 @@ class PixelBlob {
     const expectedPixels = Math.PI*(this.radius()**2);
     const isCorrectNumberOfPixels = isWithinTolerance(expectedPixels, this.coordinates.length, 0.1);
 
-    return isSquare && isCorrectNumberOfPixels && this.radius() > 25;
+    return isSquare && isCorrectNumberOfPixels && this.radius() > 50;
   }
 }
 
@@ -545,7 +485,12 @@ function distance(row1, col1, row2, col2) {
 
 // Average an array of numbers
 function average(array) {
-  return array.reduce((sum, value) => sum + value, 0)/array.length;
+  return sum(array)/array.length;
+}
+
+// Sum up all the values in the array, ignoring non-numbers
+function sum(array) {
+  return array.reduce((sum, value) => typeof value === 'number' && !isNaN(value) ? sum + value : sum, 0)
 }
 
 // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
