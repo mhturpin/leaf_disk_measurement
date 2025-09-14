@@ -33,7 +33,7 @@ window.onload = function() {
       document.querySelector('img#highlightedImage').src = image.getHighlightedImage();
 
       // Set CSV files for download
-      image.createDiskDataCsv('rgDiffAvgSum', 'rgDiffAvgSumsCsv');
+      image.createDiskDataCsv('avgNecroticValueSum', 'avgNecroticValueSumsCsv');
 
       // Display slope score
       if (image.slopeScoreLinearRegression !== undefined) {
@@ -276,8 +276,9 @@ class LeafDiskImage {
   calculateDiskScore(blob) {
     const radius = Math.round(blob.radius()*1.1);
     const {centerRow, centerCol} = blob.centerCoordinates();
-    const rgDiffSums = new Array(radius).fill(0);
-    const pixelCounts = new Array(radius).fill(0);
+    const pixelCounts = new Array(radius);
+    const rgDiffSums = new Array(radius);
+    const necroticValueSums = new Array(radius);
 
     // Sum up the red green differences for each pixel in the leaf disk
     for (const {row, col} of blob.coordinates) {
@@ -285,20 +286,33 @@ class LeafDiskImage {
       const roundedDistance = Math.round(distance(row, col, centerRow, centerCol));
 
       if (roundedDistance >= 0 && roundedDistance < radius) {
+        // Initialize if no pixels have been counted at this distance yet
+        if (pixelCounts[roundedDistance] === undefined) {
+          pixelCounts[roundedDistance] = 0;
+          rgDiffSums[roundedDistance] = 0;
+          necroticValueSums[roundedDistance] = 0;
+        }
+
+        // Increment the counts
         pixelCounts[roundedDistance]++;
         rgDiffSums[roundedDistance] += this.pixels[row][col].r - this.pixels[row][col].g;
+        necroticValueSums[roundedDistance] += this.pixels[row][col].r + this.pixels[row][col].b - this.pixels[row][col].g;
       }
     }
 
     // The minimum sum is the extent of necrotic damage
-    // Because red < green in live tissue, the sum increases towards the center because there are fewer pixels
-    const minSum = Math.min(...rgDiffSums);
-    const minSumI = rgDiffSums.findIndex(s => s === minSum);
-    let diffAvgs = rgDiffSums.map((s, i) => s/pixelCounts[i]);
-    const minAvg = minSum/pixelCounts[minSumI];
-    diffAvgs = diffAvgs.map(s => s - minAvg);
+    // Because green > red in live tissue and the center has fewer pixels, the sum increases towards the center
+    // This wouldn't work if the live tissue is heavily pigmented and has red > green
+    const minSum = Math.min(...rgDiffSums.filter(s => isRealNumber(s)));
+    const necroticExtentI = rgDiffSums.findIndex(s => s === minSum);
 
-    blob.rgDiffAvgSum = sum(diffAvgs.slice(minSumI));
+    // Calculate the averages
+    let necroticValueAvgs = necroticValueSums.map((s, i) => s/pixelCounts[i]);
+    const minAvg = necroticValueAvgs[necroticExtentI];
+    necroticValueAvgs = necroticValueAvgs.map(s => s - minAvg);
+
+    // Sum up the averages to get the score
+    blob.avgNecroticValueSum = sum(necroticValueAvgs.slice(necroticExtentI));
   }
 
   calculatePairSlopeScores() {
@@ -311,13 +325,13 @@ class LeafDiskImage {
     const pairScores = [',Leaf 1,Leaf 2,Leaf 3,Average'];
 
     for (let i = 0; i < this.rows.length; i += 2) {
-      const rgDiffAvgSums1 = this.rows[i].map(blob => blob.rgDiffAvgSum);
-      const rgDiffAvgSums2 = this.rows[i+1].map(blob => blob.rgDiffAvgSum);
+      const avgNecroticValueSums1 = this.rows[i].map(blob => blob.avgNecroticValueSum);
+      const avgNecroticValueSums2 = this.rows[i+1].map(blob => blob.avgNecroticValueSum);
       let rowPairScores = [];
 
-      rgDiffAvgSums1.forEach((rate, j) => {
+      avgNecroticValueSums1.forEach((rate, j) => {
         const point1 = {x: logConcentrations[0], y: rate};
-        const point2 = {x: logConcentrations[1], y: rgDiffAvgSums2[j]};
+        const point2 = {x: logConcentrations[1], y: avgNecroticValueSums2[j]};
 
         // Add the score for each disk pair to the csv
         rowPairScores.push(linearRegression([point1, point2]).slope);
@@ -344,15 +358,15 @@ class LeafDiskImage {
     }
 
     const logConcentrations = [Math.log10(8), Math.log10(12), Math.log10(14), Math.log10(16)];
-    const rgDiffAvgSumData = [];
+    const avgNecroticValueSumData = [];
 
     this.rows.forEach((row, i) => {
       // x: log concentration
       // y: the average value for that concentration
-      rgDiffAvgSumData.push({x: logConcentrations[i], y: average(row.map(blob => blob.rgDiffAvgSum))});
+      avgNecroticValueSumData.push({x: logConcentrations[i], y: average(row.map(blob => blob.avgNecroticValueSum))});
     });
 
-    return linearRegression(rgDiffAvgSumData);
+    return linearRegression(avgNecroticValueSumData);
   }
 }
 
@@ -481,7 +495,12 @@ function average(array) {
 
 // Sum up all the values in the array, ignoring non-numbers
 function sum(array) {
-  return array.reduce((sum, value) => typeof value === 'number' && !isNaN(value) ? sum + value : sum, 0)
+  return array.reduce((sum, value) => isRealNumber(value) ? sum + value : sum, 0)
+}
+
+// Checks if a number is a real number
+function isRealNumber(num) {
+  return typeof num === 'number' && !isNaN(num)
 }
 
 // Calculate linear regression https://codeforgeek.com/linear-regression-in-javascript/
