@@ -78,7 +78,7 @@ class LeafDiskImage {
 
       // If the pixel is dark, match it to a blob or create a new one
       // If it touches two blobs, merge them
-      if ((pixel.r + pixel.g + pixel.b) < 600) {
+      if ((pixel.r + pixel.g + pixel.b) < 500) {
         // Mark the pixel as attributes
         pixel.isDark = true;
         pixel.isNecrotic = pixel.r > pixel.g;
