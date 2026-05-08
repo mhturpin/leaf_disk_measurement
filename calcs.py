@@ -365,7 +365,7 @@ class LeafDiskImage:
     center_col = center['center_col']
 
     pixel_counts        = [0] * rad
-    rg_diff_sums        = [0] * rad
+    rg_diff_sums        = [None] * rad
     necrotic_value_sums = [0] * rad
 
     # Sum up the red green differences for each pixel in the leaf disk
@@ -376,6 +376,9 @@ class LeafDiskImage:
       # Skip pixels outside the radius
       if not (0 <= d < rad):
         continue
+
+      if rg_diff_sums[d] is None:
+        rg_diff_sums[d] = 0
 
       r = self.pixels[row][col]['r']
       g = self.pixels[row][col]['g']
@@ -405,7 +408,6 @@ class LeafDiskImage:
 
     min_avg = avgs[necrotic_extent]
 
-    print(min_avg)
     avgs = [v - min_avg if v is not None else None for v in avgs]
 
     blob.avg_necrotic_value_sum = sum_real(avgs[necrotic_extent:])
