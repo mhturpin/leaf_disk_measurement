@@ -650,13 +650,13 @@ def main():
     image = LeafDiskImage(file_path)
     image.process_image()
 
-    image.get_highlighted_image().save('highlighted.png')
+    image.get_highlighted_image().save('output/highlighted.png')
     return
 
 
 
     base = os.path.splitext(os.path.basename(file_path))[0]
-    dir_name = os.path.dirname(file_path) or '.'
+    dir_name = 'output'
 
     # Highlighted image
     highlighted_path = os.path.join(dir_name, f"{base}_highlighted.png")
