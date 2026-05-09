@@ -98,6 +98,34 @@ def find_touching_blob_indices(row, col, blobs, is_match):
 
   return indices
 
+# Group blobs into sorted rows
+def group_blobs_into_rows(blobs):
+  rows = []
+
+  for blob in blobs:
+    assigned = False
+
+    # Try to find a row that it matches
+    for i, row in enumerate(rows):
+      mid = blob.center_coordinates['center_row']
+
+      if not assigned and row[0].top < mid < row[0].bottom:
+        assigned = True
+        blob.row_group = i
+        row.append(blob)
+
+    # Otherwise, create a new row
+    if not assigned:
+      blob.row_group = len(rows)
+      rows.append([blob])
+
+  # Sort the leaf disk blobs within each row, left to right
+  for row in rows:
+    row.sort(key=lambda b: b.left)
+
+  return rows
+
+
 # ============================================== #
 # PixelBlob class
 # Handles a single blob of pixels
@@ -122,6 +150,13 @@ class PixelBlob:
   @property
   def width(self):
     return self.right - self.left
+
+  @property
+  def center_coordinates(self):
+    return {
+      'center_row': (self.bottom + self.top) / 2,
+      'center_col': (self.right + self.left) / 2
+    }
 
   # Returns true if the coordinates are contained by or adjacent to the blob
   def touches(self, row, col):
@@ -223,54 +258,56 @@ class PixelBlob:
 
 # ============================================== #
 # ColorCalibrationCard class
+# Info about process: https://www.imatest.com/docs/colormatrix/
 # ============================================== #
 
 class ColorCalibrationCard():
+  # Reference values for the Calibrite ColorChecker Classic Mini
+  REFERENCE_RGB = [
+    [
+      {'r': 115, 'g': 82, 'b': 68},
+      {'r': 194, 'g': 150, 'b': 130},
+      {'r': 98, 'g': 122, 'b': 157},
+      {'r': 87, 'g': 108, 'b': 67},
+      {'r': 133, 'g': 128, 'b': 177},
+      {'r': 103, 'g': 189, 'b': 170}
+    ],
+    [
+      {'r': 214, 'g': 126, 'b': 44},
+      {'r': 80, 'g': 91, 'b': 166},
+      {'r': 193, 'g': 90, 'b': 99},
+      {'r': 94, 'g': 60, 'b': 108},
+      {'r': 157, 'g': 188, 'b': 64},
+      {'r': 224, 'g': 163, 'b': 46}
+    ],
+    [
+      {'r': 56, 'g': 61, 'b': 150},
+      {'r': 70, 'g': 148, 'b': 73},
+      {'r': 175, 'g': 54, 'b': 60},
+      {'r': 231, 'g': 199, 'b': 31},
+      {'r': 187, 'g': 86, 'b': 149},
+      {'r': 8, 'g': 133, 'b': 161}
+    ],
+    [
+      {'r': 243, 'g': 243, 'b': 243},
+      {'r': 200, 'g': 200, 'b': 200},
+      {'r': 160, 'g': 160, 'b': 160},
+      {'r': 122, 'g': 122, 'b': 122},
+      {'r': 85, 'g': 85, 'b': 85},
+      {'r': 52, 'g': 52, 'b': 52}
+    ]
+  ]
+
   def __init__(self, blob):
     self.top    = blob.top
     self.bottom = blob.bottom
     self.left   = blob.left
     self.right  = blob.right
     self.color_squares = []
+    self.rows          = []
 
   # Calculate the 3x3 matrix to correct the RGB values in the original image
   def calculate_correction_matrix(self, pixels):
-    # Reference values for the Calibrite ColorChecker Classic Mini
-    reference_rgb = [
-      [
-        [115, 82, 68],
-        [194, 150, 130],
-        [98, 122, 157],
-        [87, 108, 67],
-        [133, 128, 177],
-        [103, 189, 170]
-      ],
-      [
-        [214, 126, 44],
-        [80, 91, 166],
-        [193, 90, 99],
-        [94, 60, 108],
-        [157, 188, 64],
-        [224, 163, 46]
-      ],
-      [
-        [56, 61, 150],
-        [70, 148, 73],
-        [175, 54, 60],
-        [231, 199, 31],
-        [187, 86, 149],
-        [8, 133, 161]
-      ],
-      [
-        [243, 243, 243],
-        [200, 200, 200],
-        [160, 160, 160],
-        [122, 122, 122],
-        [85, 85, 85],
-        [52, 52, 52]
-      ]
-    ]
-
     # Group pixels into blobs based on similar color
     for row in range(self.top, self.bottom + 1):
       # Discard any that aren't wide enough for efficiency
@@ -281,14 +318,20 @@ class ColorCalibrationCard():
 
         add_pixel_to_blobs(row, col, pixel, self.color_squares, lambda b: self.pixel_matches_blob_color(pixel, b))
 
+    # Filter down blobs to just the color squares
     self.color_squares = [c for c in self.color_squares if c.is_color_square()]
-    print([c.to_dict() for c in self.color_squares])
-    print(len(self.color_squares))
 
     # Group into rows
-    # Figure out orientation (which color is which)
-    # Calculate 3x3 conversion matrix
+    self.rows = group_blobs_into_rows(self.color_squares)
 
+    # Orient the color squares to match the reference
+    self.orient_rows_to_reference()
+
+    # Calculate 3x3 conversion matrix
+      # Linearize
+      # Calculate
+
+    # print([c.to_dict() for c in self.color_squares])
 
 
 
@@ -301,6 +344,59 @@ class ColorCalibrationCard():
     return (self.pixel_value_is_close(pixel['r'], blob.avg_r) and
             self.pixel_value_is_close(pixel['g'], blob.avg_g) and
             self.pixel_value_is_close(pixel['b'], blob.avg_b))
+
+  # Orient the extracted rows to best align with the reference color array
+  def orient_rows_to_reference(self):
+    # If the number of rows is not aligned, rotate 90 degrees
+    if len(self.rows) != len(self.REFERENCE_RGB):
+      self.rotate_color_squares_90()
+
+    # Calculate differences
+    error_1 = self.calculate_color_error()
+    self.rotate_color_squares_180()
+    error_2 = self.calculate_color_error()
+
+    # If the first error was less, set it back to that orientation
+    if error_1 < error_2:
+      self.rotate_color_squares_180()
+
+  # Rotate the color_squares array 90 degrees counter clockwise
+  def rotate_color_squares_90(self):
+    num_rows = len(self.rows)
+    num_cols = len(self.rows[0])
+
+    # i = 0 to num_rows - 1
+    # j = num_cols - 1 to 0
+    self.rows = [[self.rows[i][j] for i in range(num_rows)] for j in range(num_cols - 1, -1, -1)]
+
+  # Rotate the color_squares array 180 degrees
+  def rotate_color_squares_180(self):
+    self.rotate_color_squares_90()
+    self.rotate_color_squares_90()
+
+  # Calculate the difference between the color squares and the reference array
+  def calculate_color_error(self):
+    total_error = 0
+
+    for i, row in enumerate(self.rows):
+      for j, square in enumerate(row):
+        total_error += self.color_value_error(square.avg_r, self.REFERENCE_RGB[i][j]['r'])
+        total_error += self.color_value_error(square.avg_g, self.REFERENCE_RGB[i][j]['g'])
+        total_error += self.color_value_error(square.avg_b, self.REFERENCE_RGB[i][j]['b'])
+
+    return total_error
+
+  # Return the ratio of the difference between the observed and reference values
+  def color_value_error(self, observed, reference):
+    return abs(observed - reference) / reference
+
+
+
+
+
+
+
+
 
 
 # ============================================== #
@@ -323,12 +419,6 @@ class LeafDisk(PixelBlob):
   @property
   def radius(self):
     return (self.height + self.width) / 4
-
-  def center_coordinates(self):
-    return {
-      'center_row': (self.bottom + self.top) / 2,
-      'center_col': (self.right + self.left) / 2
-    }
 
 
 # ============================================== #
@@ -478,33 +568,6 @@ class LeafDiskImage:
         self.pixels[row][blob.left]['is_leaf_disk_box']  = True
         self.pixels[row][blob.right]['is_leaf_disk_box'] = True
 
-  # Group the leaf disks into sorted rows
-  def set_leaf_disk_rows(self):
-    self.rows = []
-
-    for blob in self.leaf_disk_blobs:
-      assigned = False
-
-      # Try to find a row that it matches
-      for i, row in enumerate(self.rows):
-        mid = blob.center_coordinates()['center_row']
-
-        if not assigned and row[0].top < mid < row[0].bottom:
-          assigned = True
-          blob.row_group = i
-          row.append(blob)
-
-      # Otherwise, create a new row
-      if not assigned:
-        blob.row_group = len(self.rows)
-        self.rows.append([blob])
-
-    # Sort the leaf disk blobs within each row, left to right
-    for row in self.rows:
-      row.sort(key=lambda b: b.left)
-
-    self.label_row_groups()
-
   # Add corner markers to each blob to indicate which row it got grouped into
   def label_row_groups(self):
     for blob in self.leaf_disk_blobs:
@@ -540,7 +603,7 @@ class LeafDiskImage:
   # Calculate the score for each leaf disk (for the single solution test)
   def calculate_disk_score(self, blob):
     rad = round(blob.radius * 1.1)
-    center = blob.center_coordinates()
+    center = blob.center_coordinates
     center_row = center['center_row']
     center_col = center['center_col']
 
