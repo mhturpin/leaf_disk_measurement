@@ -10,13 +10,6 @@ from PIL import Image
 # Utility functions (top-level, available everywhere)
 # ============================================== #
 
-# Calls the function with each row and col for the given ranges
-# Indices are inclusive
-def for_each_ij(start_i, end_i, start_j, end_j, block):
-  for i in range(start_i, end_i + 1):
-    for j in range(start_j, end_j + 1):
-      block(i, j)
-
 # Determine if a number is within the given tolerance of another number
 def is_within_tolerance(correct_num, num, tolerance):
   return abs(correct_num - num) < correct_num * tolerance
@@ -72,6 +65,38 @@ def linear_regression(data):
 
   return coefficients
 
+# Add the pixel to the list of blobs
+# optionally provide a function to determine if it is a match
+def add_pixel_to_blobs(row, col, pixel, blobs, is_match=None):
+  indices = find_touching_blob_indices(row, col, blobs, is_match)
+
+  if len(indices) == 0:
+    # If there are no matches, create a new blob
+    matching_blob = PixelBlob()
+    blobs.append(matching_blob)
+  elif len(indices) == 1:
+    # If there is only one match use that
+    matching_blob = blobs[indices[0]]
+  else:
+    # If there are two or more matches, merge them
+    matching_blob = blobs[indices[0]]
+
+    # Reverse the list so that popping doesn't invalidate the indicies
+    for i in reversed(indices[1:]):
+      matching_blob.merge(blobs[i])
+      blobs.pop(i)
+
+  matching_blob.add_pixel(row, col, pixel)
+
+# Return a sorted array of indices of all blobs that touch the given pixel
+def find_touching_blob_indices(row, col, blobs, is_match):
+  indices = []
+
+  for i, blob in enumerate(blobs):
+    if blob.touches(row, col) and (is_match is None or is_match(blob)):
+      indices.append(i)
+
+  return indices
 
 # ============================================== #
 # PixelBlob class
@@ -85,40 +110,10 @@ class PixelBlob:
     self.bottom = float('-inf')
     self.left   = float('inf')
     self.right  = float('-inf')
-    self.coordinates          = []
-    self.necrotic_coordinates = []
-    self.live_coordinates     = []
-    self.row_group = None
-    self.avg_necrotic_value_sum = None
-
-  # Returns true if the coordinates are contained by or adjacent to the blob
-  def touches(self, row, col):
-    return (self.top - 1) <= row <= (self.bottom + 1) and (self.left - 1) <= col <= (self.right + 1)
-
-  # Adjust the boundaries if necessary and add the coordinates to the array
-  def add_pixel(self, row, col, is_necrotic):
-    if self.top > row: self.top = row
-    if self.bottom < row: self.bottom = row
-    if self.left > col: self.left = col
-    if self.right < col: self.right = col
-
-    self.coordinates.append({'row': row, 'col': col})
-
-    if is_necrotic:
-      self.necrotic_coordinates.append({'row': row, 'col': col})
-    else:
-      self.live_coordinates.append({'row': row, 'col': col})
-
-  # Merge the blob into this one
-  def merge(self, blob):
-    self.top    = min(self.top,    blob.top)
-    self.bottom = max(self.bottom, blob.bottom)
-    self.left   = min(self.left,   blob.left)
-    self.right  = max(self.right,  blob.right)
-
-    self.coordinates.extend(blob.coordinates)
-    self.necrotic_coordinates.extend(blob.necrotic_coordinates)
-    self.live_coordinates.extend(blob.live_coordinates)
+    self.coordinates = []
+    self.avg_r = 0
+    self.avg_g = 0
+    self.avg_b = 0
 
   @property
   def height(self):
@@ -127,6 +122,203 @@ class PixelBlob:
   @property
   def width(self):
     return self.right - self.left
+
+  # Returns true if the coordinates are contained by or adjacent to the blob
+  def touches(self, row, col):
+    return (self.top - 1) <= row <= (self.bottom + 1) and (self.left - 1) <= col <= (self.right + 1)
+
+  # Adjust the boundaries if necessary and add the coordinates to the array
+  def add_pixel(self, row, col, pixel):
+    if self.top > row: self.top = row
+    if self.bottom < row: self.bottom = row
+    if self.left > col: self.left = col
+    if self.right < col: self.right = col
+
+    # Update avg colors
+    self.avg_r = self.add_value_to_avg(self.avg_r, pixel['r'])
+    self.avg_g = self.add_value_to_avg(self.avg_g, pixel['g'])
+    self.avg_b = self.add_value_to_avg(self.avg_b, pixel['b'])
+
+    self.coordinates.append({'row': row, 'col': col})
+
+  # Merge the blob into this one
+  def merge(self, blob):
+    self.top    = min(self.top,    blob.top)
+    self.bottom = max(self.bottom, blob.bottom)
+    self.left   = min(self.left,   blob.left)
+    self.right  = max(self.right,  blob.right)
+
+    # Update avg colors
+    self.avg_r = self.merge_avgs(self.avg_r, len(self.coordinates), blob.avg_r, len(blob.coordinates))
+    self.avg_g = self.merge_avgs(self.avg_g, len(self.coordinates), blob.avg_g, len(blob.coordinates))
+    self.avg_b = self.merge_avgs(self.avg_b, len(self.coordinates), blob.avg_b, len(blob.coordinates))
+
+    self.coordinates.extend(blob.coordinates)
+
+  # Add one new value to the existing average
+  def add_value_to_avg(self, avg, new_val):
+    return (avg * len(self.coordinates) + new_val) / (len(self.coordinates) + 1)
+
+  # Combine averages of two blobs
+  def merge_avgs(self, avg_1, len_1, avg_2, len_2):
+    return ((avg_1 * len_1) + (avg_2 * len_2)) / (len_1 + len_2)
+
+  # Returns true if the blob's height and width are roughly equal,
+  # it has roughly the number of dark pixels expected if it were circular,
+  # and the radius is greater than 62 (the image shouldn't be less than 200 dpi, leaf disk radius is 5/16")
+  def is_leaf_disk(self):
+    is_square           = is_within_tolerance(self.height, self.width, 0.1)
+    expected_pixels     = math.pi * self.radius**2
+    is_correct_pixel_count = is_within_tolerance(expected_pixels, len(self.coordinates), 0.1)
+    is_large_enough     = self.radius > 62
+
+    return is_square and is_correct_pixel_count and is_large_enough
+
+  # Returns true if the blob has an aspect ratio of 2.25 x 3.25
+  # and the height and width are greater than 400 (the image shouldn't be less than 200 dpi, minimum card dimension is 2.25)
+  def is_calibration_card(self):
+    aspect_ratio     = self.height / max(self.width, 1)
+    is_correct_ratio = is_within_tolerance(aspect_ratio, 2.25 / 3.25, 0.2) or is_within_tolerance(aspect_ratio, 3.25 / 2.25, 0.2)
+    is_large_enough  = self.height > 400 and self.width > 400
+
+    return is_correct_ratio and is_large_enough
+
+  # Returns true if the blob is square,
+  # it has roughly the number of pixels expected if it were square,
+  # and the height and width are greater than 65 (the image shouldn't be less than 200 dpi, squares are about 0.325")
+  def is_color_square(self):
+    is_square           = is_within_tolerance(self.height, self.width, 0.1)
+    expected_pixels     = self.height * self.width
+    is_correct_pixel_count = is_within_tolerance(expected_pixels, len(self.coordinates), 0.1)
+    is_large_enough     = self.height > 65 and self.width > 65
+
+    return is_square and is_correct_pixel_count and is_large_enough
+
+  def boundaries(self):
+    return {
+      'top': self.top,
+      'bottom': self.bottom,
+      'left': self.left,
+      'right': self.right
+    }
+
+  def averages(self):
+    return {
+      'red': self.avg_r,
+      'green': self.avg_g,
+      'blue': self.avg_b
+    }
+
+  def to_dict(self):
+    return {
+      'top': self.top,
+      'bottom': self.bottom,
+      'left': self.left,
+      'right': self.right,
+      'red': self.avg_r,
+      'green': self.avg_g,
+      'blue': self.avg_b
+    }
+
+
+# ============================================== #
+# ColorCalibrationCard class
+# ============================================== #
+
+class ColorCalibrationCard():
+  def __init__(self, blob):
+    self.top    = blob.top
+    self.bottom = blob.bottom
+    self.left   = blob.left
+    self.right  = blob.right
+    self.color_squares = []
+
+  # Calculate the 3x3 matrix to correct the RGB values in the original image
+  def calculate_correction_matrix(self, pixels):
+    # Reference values for the Calibrite ColorChecker Classic Mini
+    reference_rgb = [
+      [
+        [115, 82, 68],
+        [194, 150, 130],
+        [98, 122, 157],
+        [87, 108, 67],
+        [133, 128, 177],
+        [103, 189, 170]
+      ],
+      [
+        [214, 126, 44],
+        [80, 91, 166],
+        [193, 90, 99],
+        [94, 60, 108],
+        [157, 188, 64],
+        [224, 163, 46]
+      ],
+      [
+        [56, 61, 150],
+        [70, 148, 73],
+        [175, 54, 60],
+        [231, 199, 31],
+        [187, 86, 149],
+        [8, 133, 161]
+      ],
+      [
+        [243, 243, 243],
+        [200, 200, 200],
+        [160, 160, 160],
+        [122, 122, 122],
+        [85, 85, 85],
+        [52, 52, 52]
+      ]
+    ]
+
+    # Group pixels into blobs based on similar color
+    for row in range(self.top, self.bottom + 1):
+      # Discard any that aren't wide enough for efficiency
+      self.color_squares = [c for c in self.color_squares if c.width > 65]
+
+      for col in range(self.left, self.right + 1):
+        pixel = pixels[row][col]
+
+        add_pixel_to_blobs(row, col, pixel, self.color_squares, lambda b: self.pixel_matches_blob_color(pixel, b))
+
+    self.color_squares = [c for c in self.color_squares if c.is_color_square()]
+    print([c.to_dict() for c in self.color_squares])
+    print(len(self.color_squares))
+
+    # Group into rows
+    # Figure out orientation (which color is which)
+    # Calculate 3x3 conversion matrix
+
+
+
+
+  # The value is close if it is +/- 5 of the average
+  def pixel_value_is_close(self, pixel_val, avg_val):
+    return avg_val - 5 <= pixel_val <= avg_val + 5
+
+  # The pixel matches if all RGB values are close
+  def pixel_matches_blob_color(self, pixel, blob):
+    return (self.pixel_value_is_close(pixel['r'], blob.avg_r) and
+            self.pixel_value_is_close(pixel['g'], blob.avg_g) and
+            self.pixel_value_is_close(pixel['b'], blob.avg_b))
+
+
+# ============================================== #
+# LeafDisk class
+# A PixelBlob that is a leaf disk
+# ============================================== #
+
+class LeafDisk(PixelBlob):
+  def __init__(self, blob, pixels):
+    self.top    = blob.top
+    self.bottom = blob.bottom
+    self.left   = blob.left
+    self.right  = blob.right
+    self.coordinates          = blob.coordinates
+    self.necrotic_coordinates = [c for c in blob.coordinates if pixels[c['row']][c['col']]['is_necrotic']]
+    self.live_coordinates     = [c for c in blob.coordinates if pixels[c['row']][c['col']]['is_dark']]
+    self.row_group = None
+    self.avg_necrotic_value_sum = None
 
   @property
   def radius(self):
@@ -137,16 +329,6 @@ class PixelBlob:
       'center_row': (self.bottom + self.top) / 2,
       'center_col': (self.right + self.left) / 2
     }
-
-  # Returns true if the blob's height and width are roughly equal,
-  # if it has roughly the number of dark pixels expected if it were circular,
-  # and if the radius is greater than 62 (the image shouldn't be less than 200 dpi, 200*5/16 = leaf disk radius)
-  def is_leaf_disk(self):
-    is_square           = is_within_tolerance(self.height, self.width, 0.1)
-    expected_pixels     = math.pi * self.radius**2
-    correct_pixel_count = is_within_tolerance(expected_pixels, len(self.coordinates), 0.1)
-
-    return is_square and correct_pixel_count and self.radius > 62
 
 
 # ============================================== #
@@ -183,26 +365,30 @@ class LeafDiskImage:
         pixel['is_dark']     = True
         pixel['is_necrotic'] = pixel['r'] > pixel['g']
 
-        # Find blobs that touch the pixel
-        indices = self.find_touching_blob_indices(row, col)
+        add_pixel_to_blobs(row, col, pixel, self.dark_blobs)
 
-        if len(indices) == 0:
-          # If there are no matches, create a new blob
-          blob = PixelBlob()
-          self.dark_blobs.append(blob)
-          matching_blob = blob
-        elif len(indices) == 1:
-          # If there is only one match use that
-          matching_blob = self.dark_blobs[indices[0]]
-        elif len(indices) == 2:
-          # If there are two matches, merge them
-          matching_blob = self.dark_blobs[indices[0]]
-          matching_blob.merge(self.dark_blobs[indices[1]])
-          self.dark_blobs.pop(indices[1])
-        else:
-          raise ValueError(f"A pixel matched {len(indices)} blobs")
+    # Find the color calibration card
+    color_card = [b for b in self.dark_blobs if b.is_calibration_card()][0]
+    color_card = ColorCalibrationCard(color_card)
+    color_card.calculate_correction_matrix(self.pixels)
 
-        matching_blob.add_pixel(row, col, pixel['is_necrotic'])
+    for sq in color_card.color_squares:
+      for i in range(sq.top, sq.bottom):
+        for j in range(sq.left, sq.right):
+          self.pixels[i][j]['r'] = 255
+          self.pixels[i][j]['g'] = 0
+          self.pixels[i][j]['b'] = 255
+
+
+    return
+
+
+
+
+
+
+
+
 
     # Set the leaf disk blobs and group them into rows
     self.leaf_disk_blobs = [b for b in self.dark_blobs if b.is_leaf_disk()]
@@ -228,18 +414,18 @@ class LeafDiskImage:
         pixel = self.pixels[row][col]
         r, g, b = pixel['r'], pixel['g'], pixel['b']
 
-        # Mark dark pixels green
-        if pixel.get('is_dark'):
-          v = max(0, min(255, ((r - g + 50) * 255 / 100)))
-          r, g, b = v, v, v
+        # # Mark dark pixels green
+        # if pixel.get('is_dark'):
+        #   v = max(0, min(255, ((r - g + 50) * 255 / 100)))
+        #   r, g, b = v, v, v
 
-        # Mark leaf disk boxes and row markers black
-        if pixel.get('is_leaf_disk_box') or pixel.get('is_row_marker'):
-          r, g, b = 0, 0, 0
+        # # Mark leaf disk boxes and row markers black
+        # if pixel.get('is_leaf_disk_box') or pixel.get('is_row_marker'):
+        #   r, g, b = 0, 0, 0
 
-        # Mark best fit circle white
-        if pixel.get('is_best_fit_circle'):
-          r, g, b = 255, 255, 255
+        # # Mark best fit circle white
+        # if pixel.get('is_best_fit_circle'):
+        #   r, g, b = 255, 255, 255
 
         png.putpixel((col, row), (int(r), int(g), int(b)))
     return png
@@ -273,19 +459,13 @@ class LeafDiskImage:
 
     for row in range(height):
       for col in range(width):
-        r, g, b = img.getpixel((col, row))
+        pixel = img.getpixel((col, row))
+        r = pixel[0]
+        g = pixel[1]
+        b = pixel[2]
+
         pixels[row][col] = {'r': r, 'g': g, 'b': b}
     return pixels
-
-  # Return an array of indices of all blobs that touch the given pixel
-  def find_touching_blob_indices(self, row, col):
-    indices = []
-
-    for i, blob in enumerate(self.dark_blobs):
-      if blob.touches(row, col):
-        indices.append(i)
-
-    return indices
 
   # Mark blob borders on the image
   def label_blob_borders(self):
@@ -469,6 +649,11 @@ def main():
 
     image = LeafDiskImage(file_path)
     image.process_image()
+
+    image.get_highlighted_image().save('highlighted.png')
+    return
+
+
 
     base = os.path.splitext(os.path.basename(file_path))[0]
     dir_name = os.path.dirname(file_path) or '.'
