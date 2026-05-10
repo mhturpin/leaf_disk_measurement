@@ -4,6 +4,7 @@
 import sys
 import os
 import math
+import numpy as np
 from PIL import Image
 
 # ============================================== #
@@ -124,6 +125,57 @@ def group_blobs_into_rows(blobs):
     row.sort(key=lambda b: b.left)
 
   return rows
+
+# Return the ratio of the difference between the observed and reference values
+def value_error(observed, reference):
+  return abs(observed - reference) / reference
+
+# Convert sRGB value to linear RGB
+def srgb_to_linear(value):
+  value /= 255
+
+  if value <= 0.04045:
+    return value / 12.92
+  else:
+    return ((value + 0.055) / 1.055) ** 2.4
+
+# Convert sRGB pixel to linear RGB
+def srgb_pixel_to_linear(pixel):
+  return [srgb_to_linear(val) for val in pixel]
+
+# Convert linear RGB value to sRGB
+def linear_to_srgb(value):
+  if value <= 0.0031308:
+    srgb = value * 12.92
+  else:
+    srgb = (1.055 * (value ** (1/2.4)) - 0.055)
+
+  return srgb * 255
+
+# Convert sRGB pixel to linear RGB
+def linear_pixel_to_srgb(pixel):
+  return [linear_to_srgb(val) for val in pixel]
+
+# Flatten 2D array of pixels to 1D array and
+# convert RGB dicts to an array ordered R, G, B
+# Result is a 2d array
+def pixels_to_rgb_array(pixels):
+  result = []
+
+  for row in pixels:
+    result.extend([[p['r'], p['g'], p['b']] for p in row])
+
+  return result
+
+# Convert list of RGB arrays back to a 2D array of pixel RGB dicts
+def rgb_array_to_pixels(rgb_array, num_rows, num_cols):
+  assert num_rows * num_cols == len(rgb_array), 'Incorrect number of pixels'
+
+  # Convert each pixel into a dict
+  rgb_dicts = [{'r': rgb[0], 'g': rgb[1], 'b': rgb[2]} for rgb in rgb_array]
+
+  # Convert into 2D array of pixels
+  return [rgb_dicts[i * num_cols:(i + 1) * num_cols] for i in range(num_rows)]
 
 
 # ============================================== #
@@ -305,9 +357,9 @@ class ColorCalibrationCard():
     self.right  = blob.right
     self.color_squares = []
     self.rows          = []
+    self.correction_matrix = []
 
-  # Calculate the 3x3 matrix to correct the RGB values in the original image
-  def calculate_correction_matrix(self, pixels):
+  def find_color_card_values(self, pixels):
     # Group pixels into blobs based on similar color
     for row in range(self.top, self.bottom + 1):
       # Discard any that aren't wide enough for efficiency
@@ -327,13 +379,16 @@ class ColorCalibrationCard():
     # Orient the color squares to match the reference
     self.orient_rows_to_reference()
 
+  # Calculate the 3x3 matrix to correct the RGB values in the original image
+  def calculate_correction_matrix(self):
+    # Convert image and reference values to linear RGB
+    observed_colors = pixels_to_rgb_array(self.get_avg_color_square_pixels())
+    reference_colors = pixels_to_rgb_array(self.REFERENCE_RGB)
+    linear_observed_colors = [srgb_pixel_to_linear(c) for c in observed_colors]
+    linear_reference_colors = [srgb_pixel_to_linear(c) for c in reference_colors]
+
     # Calculate 3x3 conversion matrix
-      # Linearize
-      # Calculate
-
-    # print([c.to_dict() for c in self.color_squares])
-
-
+    self.correction_matrix, _, _, _ = np.linalg.lstsq(linear_observed_colors, linear_reference_colors, rcond=None)
 
   # The value is close if it is +/- 5 of the average
   def pixel_value_is_close(self, pixel_val, avg_val):
@@ -376,27 +431,54 @@ class ColorCalibrationCard():
 
   # Calculate the difference between the color squares and the reference array
   def calculate_color_error(self):
-    total_error = 0
+    before_error = 0
 
     for i, row in enumerate(self.rows):
       for j, square in enumerate(row):
-        total_error += self.color_value_error(square.avg_r, self.REFERENCE_RGB[i][j]['r'])
-        total_error += self.color_value_error(square.avg_g, self.REFERENCE_RGB[i][j]['g'])
-        total_error += self.color_value_error(square.avg_b, self.REFERENCE_RGB[i][j]['b'])
+        before_error += value_error(square.avg_r, self.REFERENCE_RGB[i][j]['r'])
+        before_error += value_error(square.avg_g, self.REFERENCE_RGB[i][j]['g'])
+        before_error += value_error(square.avg_b, self.REFERENCE_RGB[i][j]['b'])
 
-    return total_error
+    print(f"before_error: {before_error}")
 
-  # Return the ratio of the difference between the observed and reference values
-  def color_value_error(self, observed, reference):
-    return abs(observed - reference) / reference
+    if len(self.correction_matrix) == 3:
+      corrected_squares = self.correct_pixels(self.get_avg_color_square_pixels())
+      after_error = 0
+
+      for i, row in enumerate(corrected_squares):
+        for j, square in enumerate(row):
+          after_error += value_error(square['r'], self.REFERENCE_RGB[i][j]['r'])
+          after_error += value_error(square['g'], self.REFERENCE_RGB[i][j]['g'])
+          after_error += value_error(square['b'], self.REFERENCE_RGB[i][j]['b'])
+
+      print(f"after_error: {after_error}")
 
 
+    return before_error
 
+  # Convert the average RGB values for the color squares into a pixel array
+  def get_avg_color_square_pixels(self):
+    result = []
 
+    for row in self.rows:
+      result.append([{'r': square.avg_r, 'g': square.avg_g, 'b': square.avg_b} for square in row])
 
+    return result
 
+  # Color correct the pixels using the correction_matrix
+  def correct_pixels(self, pixels):
+    # Transform to a matrix of RGB values and linearize
+    rgb_array = pixels_to_rgb_array(pixels)
+    linear_rgb_array = [srgb_pixel_to_linear(rgb) for rgb in rgb_array]
 
+    # Multiply by correction_matrix
+    corrected_rgb_array = linear_rgb_array @ self.correction_matrix
 
+    # Convert to srgb
+    rgb_array = [linear_pixel_to_srgb(rgb) for rgb in corrected_rgb_array]
+
+    # Convert to 2D array
+    return rgb_array_to_pixels(rgb_array, len(pixels), len(pixels[0]))
 
 
 # ============================================== #
@@ -434,7 +516,6 @@ class LeafDiskImage:
     self.dark_blobs      = []
     self.leaf_disk_blobs = []
     self.rows            = []
-    self.pair_scores_csv = None
     self.pixels          = None
 
   # Do all the image processing from loading the file to determining necrotic areas
@@ -460,15 +541,12 @@ class LeafDiskImage:
     # Find the color calibration card
     color_card = [b for b in self.dark_blobs if b.is_calibration_card()][0]
     color_card = ColorCalibrationCard(color_card)
-    color_card.calculate_correction_matrix(self.pixels)
+    color_card.find_color_card_values(self.pixels)
+    color_card.calculate_correction_matrix()
 
-    for sq in color_card.color_squares:
-      for i in range(sq.top, sq.bottom):
-        for j in range(sq.left, sq.right):
-          self.pixels[i][j]['r'] = 255
-          self.pixels[i][j]['g'] = 0
-          self.pixels[i][j]['b'] = 255
+    self.pixels = color_card.correct_pixels(self.pixels)
 
+    color_card.calculate_color_error()
 
     return
 
@@ -489,9 +567,6 @@ class LeafDiskImage:
     # Calculate the scores
     for blob in self.leaf_disk_blobs:
       self.calculate_disk_score(blob)
-
-    self.slope_score_linear_regression = self.calculate_slope_score()
-    self.calculate_pair_slope_scores()
 
   # Create a visualization
   def get_highlighted_image(self):
@@ -535,13 +610,7 @@ class LeafDiskImage:
 
     return lines
 
-  def pair_scores_csv(self):
-    return self._pair_scores_csv
-
-  def _pair_scores_csv(self):
-    return self.pair_scores_csv
-
-  # Private methods
+  # Load the pixels from the image
   def load_pixels(self, file_path):
     img = Image.open(file_path)
     width, height = img.size
@@ -655,42 +724,6 @@ class LeafDiskImage:
 
     blob.avg_necrotic_value_sum = sum_real(avgs[necrotic_extent:])
 
-  def calculate_slope_score(self):
-    if len(self.rows) != 4:
-      print(f"  Note: {len(self.rows)} rows found (expected 4), skipping slope score.")
-      return None
-
-    log_concentrations = [math.log10(8), math.log10(12), math.log10(14), math.log10(16)]
-    data = [{'x': log_concentrations[i], 'y': average([b.avg_necrotic_value_sum for b in row])} for i, row in enumerate(self.rows)]
-
-    return linear_regression(data)
-
-  def calculate_pair_slope_scores(self):
-    if len(self.rows) % 2 != 0:
-      print(f"  Note: {len(self.rows)} rows found (odd number), skipping pair slope scores.")
-      return
-
-    log_concentrations = [math.log10(8), math.log10(16)]
-    lines = [',Leaf 1,Leaf 2,Leaf 3,Average']
-
-    for i in range(0, len(self.rows), 2):
-      sums1 = [b.avg_necrotic_value_sum for b in self.rows[i]]
-      sums2 = [b.avg_necrotic_value_sum for b in self.rows[i+1]]
-
-      pair_scores = []
-      for j, rate in enumerate(sums1):
-        reg = linear_regression([
-          {'x': log_concentrations[0], 'y': rate},
-          {'x': log_concentrations[1], 'y': sums2[j]}
-        ])
-        pair_scores.append(reg['slope'])
-
-      pair_scores.append(average(pair_scores))
-      row_line = [f"Tree {i // 2}"] + [f"{s:.3f}" for s in pair_scores]
-      lines.append(','.join(row_line))
-
-    self.pair_scores_csv = lines
-
 
 # ============================================== #
 # Main
@@ -700,8 +733,6 @@ def main():
   if len(sys.argv) < 2:
     print("Usage: python calcs.py image1.png [image2.png ...]")
     sys.exit(1)
-
-  slope_score_rows = ['File Name,Slope Score,R Squared']
 
   for file_path in sys.argv[1:]:
     if not os.path.exists(file_path):
@@ -732,29 +763,8 @@ def main():
       f.write('\n'.join(image.disk_data_csv()))
     print(f"  Saved disk data CSV:      {disk_csv_path}")
 
-    # Pair scores CSV
-    if image.pair_scores_csv:
-      pair_csv_path = os.path.join(dir_name, f"{base}_pairScores.csv")
-      with open(pair_csv_path, 'w') as f:
-        f.write('\n'.join(image.pair_scores_csv))
-      print(f"  Saved pair scores CSV:    {pair_csv_path}")
-
-    # Slope score
-    reg = image.slope_score_linear_regression
-    if reg:
-      print(f"  Slope:        {reg['slope']:.2f}")
-      print(f"  Y-Intercept: {reg['y_intercept']:.2f}")
-      print(f"  R²:           {reg['r_squared']:.2f}")
-      slope_score_rows.append(f"{os.path.basename(file_path)},{reg['slope']:.2f},{reg['r_squared']:.2f}")
-
     print(f"  Average radius: {image.avg_radius:.2f} px")
     print(f"  Rows: {[len(row) for row in image.rows]}")
-
-  # Combined slope scores CSV (always written, even if empty)
-  slope_csv_path = os.path.join(os.getcwd(), 'slopeScores.csv')
-  with open(slope_csv_path, 'w') as f:
-    f.write('\n'.join(slope_score_rows))
-  print(f"\nSaved combined slope scores: {slope_csv_path}")
 
 if __name__ == '__main__':
   main()
