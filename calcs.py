@@ -362,13 +362,13 @@ class ColorCalibrationCard():
   def find_color_card_values(self, pixels):
     # Group pixels into blobs based on similar color
     for row in range(self.top, self.bottom + 1):
-      # Discard any that aren't wide enough for efficiency
-      self.color_squares = [c for c in self.color_squares if c.width > 65]
-
       for col in range(self.left, self.right + 1):
         pixel = pixels[row][col]
 
         add_pixel_to_blobs(row, col, pixel, self.color_squares, lambda b: self.pixel_matches_blob_color(pixel, b))
+
+      # Discard any that aren't wide enough for efficiency
+      self.color_squares = [c for c in self.color_squares if c.width > 65]
 
     # Filter down blobs to just the color squares
     self.color_squares = [c for c in self.color_squares if c.is_color_square()]
@@ -392,7 +392,7 @@ class ColorCalibrationCard():
 
   # The value is close if it is +/- 5 of the average
   def pixel_value_is_close(self, pixel_val, avg_val):
-    return avg_val - 5 <= pixel_val <= avg_val + 5
+    return avg_val - 15 <= pixel_val <= avg_val + 15
 
   # The pixel matches if all RGB values are close
   def pixel_matches_blob_color(self, pixel, blob):
