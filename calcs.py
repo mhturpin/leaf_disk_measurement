@@ -70,10 +70,7 @@ def avg_color(pixels, top, bottom, left, right):
   return {
     'r': r_total / num_pixels,
     'g': g_total / num_pixels,
-    'b': b_total / num_pixels,
-    'avg_r': r_total / num_pixels,
-    'avg_g': g_total / num_pixels,
-    'avg_b': b_total / num_pixels
+    'b': b_total / num_pixels
   }
 
 # https://stackoverflow.com/questions/65987106/how-do-i-calculate-r-squared-value-in-javascript
@@ -230,9 +227,6 @@ class PixelBlob:
     self.left   = float('inf')
     self.right  = float('-inf')
     self.coordinates = []
-    self.avg_r = 0
-    self.avg_g = 0
-    self.avg_b = 0
 
   @property
   def height(self):
@@ -260,11 +254,6 @@ class PixelBlob:
     if self.left > col: self.left = col
     if self.right < col: self.right = col
 
-    # Update avg colors
-    self.avg_r = self.add_value_to_avg(self.avg_r, pixel['r'])
-    self.avg_g = self.add_value_to_avg(self.avg_g, pixel['g'])
-    self.avg_b = self.add_value_to_avg(self.avg_b, pixel['b'])
-
     self.coordinates.append({'row': row, 'col': col})
 
   # Merge the blob into this one
@@ -273,11 +262,6 @@ class PixelBlob:
     self.bottom = max(self.bottom, blob.bottom)
     self.left   = min(self.left,   blob.left)
     self.right  = max(self.right,  blob.right)
-
-    # Update avg colors
-    self.avg_r = self.merge_avgs(self.avg_r, len(self.coordinates), blob.avg_r, len(blob.coordinates))
-    self.avg_g = self.merge_avgs(self.avg_g, len(self.coordinates), blob.avg_g, len(blob.coordinates))
-    self.avg_b = self.merge_avgs(self.avg_b, len(self.coordinates), blob.avg_b, len(blob.coordinates))
 
     self.coordinates.extend(blob.coordinates)
 
@@ -328,22 +312,12 @@ class PixelBlob:
       'right': self.right
     }
 
-  def averages(self):
-    return {
-      'red': self.avg_r,
-      'green': self.avg_g,
-      'blue': self.avg_b
-    }
-
   def to_dict(self):
     return {
       'top': self.top,
       'bottom': self.bottom,
       'left': self.left,
-      'right': self.right,
-      'red': self.avg_r,
-      'green': self.avg_g,
-      'blue': self.avg_b
+      'right': self.right
     }
 
 
@@ -406,26 +380,6 @@ class ColorCalibrationCard():
   def width(self):
     return self.right - self.left
 
-  def find_color_card_values(self, pixels):
-    # Group pixels into blobs based on similar color
-    for row in range(self.top, self.bottom + 1):
-      for col in range(self.left, self.right + 1):
-        pixel = pixels[row][col]
-
-        add_pixel_to_blobs(row, col, pixel, self.color_squares, lambda b: self.pixel_matches_blob_color(pixel, b))
-
-      # Discard any that aren't wide enough for efficiency
-      self.color_squares = [c for c in self.color_squares if c.width > 65]
-
-    # Filter down blobs to just the color squares
-    self.color_squares = [c for c in self.color_squares if c.is_color_square()]
-
-    # Group into rows
-    self.rows = group_blobs_into_rows(self.color_squares)
-
-    # Orient the color squares to match the reference
-    self.orient_rows_to_reference()
-
   # From the starting pixel, find the boundaries where the color is different from the initial color
   def find_square_boundaries(self, start_row, start_col, pixels):
     # Find the average reference color
@@ -469,7 +423,7 @@ class ColorCalibrationCard():
     }
 
 
-  def find_color_card_values2(self, pixels):
+  def find_color_card_values(self, pixels):
     # Percentages for color square row and column locations
     # Start is the center of the first square
     # Increment is how much to add to get to the center of the next square
@@ -538,7 +492,6 @@ class ColorCalibrationCard():
     # Orient the color squares to match the reference
     self.orient_rows_to_reference()
 
-    print(self.rows)
 
 
 
@@ -560,12 +513,6 @@ class ColorCalibrationCard():
   # The value is close if it is +/- 5 of the average
   def pixel_value_is_close(self, pixel_val, avg_val):
     return avg_val - 15 <= pixel_val <= avg_val + 15
-
-  # The pixel matches if all RGB values are close
-  def pixel_matches_blob_color(self, pixel, blob):
-    return (self.pixel_value_is_close(pixel['r'], blob.avg_r) and
-            self.pixel_value_is_close(pixel['g'], blob.avg_g) and
-            self.pixel_value_is_close(pixel['b'], blob.avg_b))
 
   # The pixel matches if all RGB values are close
   def pixel_colors_match(self, p1, p2):
@@ -608,9 +555,9 @@ class ColorCalibrationCard():
 
     for i, row in enumerate(self.rows):
       for j, square in enumerate(row):
-        before_error += value_error(square.avg_r, self.REFERENCE_RGB[i][j]['r'])
-        before_error += value_error(square.avg_g, self.REFERENCE_RGB[i][j]['g'])
-        before_error += value_error(square.avg_b, self.REFERENCE_RGB[i][j]['b'])
+        before_error += value_error(square['r'], self.REFERENCE_RGB[i][j]['r'])
+        before_error += value_error(square['g'], self.REFERENCE_RGB[i][j]['g'])
+        before_error += value_error(square['b'], self.REFERENCE_RGB[i][j]['b'])
 
     print(f"before_error: {before_error}")
 
@@ -634,7 +581,7 @@ class ColorCalibrationCard():
     result = []
 
     for row in self.rows:
-      result.append([{'r': square.avg_r, 'g': square.avg_g, 'b': square.avg_b} for square in row])
+      result.append([{'r': square['r'], 'g': square['g'], 'b': square['b']} for square in row])
 
     return result
 
@@ -715,16 +662,13 @@ class LeafDiskImage:
     color_card = [b for b in self.dark_blobs if b.is_calibration_card()][0]
     color_card = ColorCalibrationCard(color_card)
 
-    color_card.find_color_card_values2(self.pixels)
+    color_card.find_color_card_values(self.pixels)
 
+    color_card.calculate_correction_matrix()
 
+    self.pixels = color_card.correct_pixels(self.pixels)
 
-    # color_card.find_color_card_values(self.pixels)
-    # color_card.calculate_correction_matrix()
-
-    # self.pixels = color_card.correct_pixels(self.pixels)
-
-    # color_card.calculate_color_error()
+    color_card.calculate_color_error()
 
     return
 
