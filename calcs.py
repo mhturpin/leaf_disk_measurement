@@ -31,11 +31,50 @@ def is_real_number(num):
 def sum_real(arr):
   return sum(v for v in arr if is_real_number(v))
 
+# Find the largest cluster
+def clustered_mode(arr, tolerance):
+  tolerance = tolerance
+  max_val = int(max(arr) + tolerance)
+  counts = [0] * (max_val + 1)
+
+  for val in arr:
+    for i in range(int(val - tolerance), int(val + tolerance + 1)):
+      if 0 <= i <= max_val:
+        counts[i] += 1
+
+  max_count = max(counts)
+  matching_indices = [i for i, c in enumerate(counts) if c == max_count]
+
+  return average(matching_indices)
+
 # Average an array of numbers
 def average(arr):
   real = [v for v in arr if is_real_number(v)]
 
   return 0 if not real else sum(real) / len(real)
+
+# Get the average color for a block of pixels, inclusive
+def avg_color(pixels, top, bottom, left, right):
+  r_total = 0
+  g_total = 0
+  b_total = 0
+
+  for row in range(top, bottom + 1):
+    for col in range(left, right + 1):
+      r_total += pixels[row][col]['r']
+      g_total += pixels[row][col]['g']
+      b_total += pixels[row][col]['b']
+
+  num_pixels = (bottom - top + 1) * (right - left + 1)
+
+  return {
+    'r': r_total / num_pixels,
+    'g': g_total / num_pixels,
+    'b': b_total / num_pixels,
+    'avg_r': r_total / num_pixels,
+    'avg_g': g_total / num_pixels,
+    'avg_b': b_total / num_pixels
+  }
 
 # https://stackoverflow.com/questions/65987106/how-do-i-calculate-r-squared-value-in-javascript
 def r_squared(data, coefficients):
@@ -359,6 +398,14 @@ class ColorCalibrationCard():
     self.rows          = []
     self.correction_matrix = []
 
+  @property
+  def height(self):
+    return self.bottom - self.top
+
+  @property
+  def width(self):
+    return self.right - self.left
+
   def find_color_card_values(self, pixels):
     # Group pixels into blobs based on similar color
     for row in range(self.top, self.bottom + 1):
@@ -378,6 +425,126 @@ class ColorCalibrationCard():
 
     # Orient the color squares to match the reference
     self.orient_rows_to_reference()
+
+  # From the starting pixel, find the boundaries where the color is different from the initial color
+  def find_square_boundaries(self, start_row, start_col, pixels):
+    # Find the average reference color
+    ref_color = avg_color(pixels, start_row - 5, start_row + 5, start_col - 5, start_col + 5)
+
+    current_top = start_row
+    current_bottom = start_row
+    current_left = start_col
+    current_right = start_col
+
+    # Find top
+    row = start_row
+    col = start_col
+    while self.pixel_colors_match(pixels[row][col], ref_color):
+      current_top = row
+      row -= 1
+
+    # Find bottom
+    row = start_row
+    while self.pixel_colors_match(pixels[row][col], ref_color):
+      current_bottom = row
+      row += 1
+
+    # Find left
+    row = start_row
+    while self.pixel_colors_match(pixels[row][col], ref_color):
+      current_left = col
+      col -= 1
+
+    # Find right
+    col = start_col
+    while self.pixel_colors_match(pixels[row][col], ref_color):
+      current_right = col
+      col += 1
+
+    return {
+      'top': current_top,
+      'bottom': current_bottom,
+      'left': current_left,
+      'right': current_right
+    }
+
+
+  def find_color_card_values2(self, pixels):
+    # Percentages for color square row and column locations
+    # Start is the center of the first square
+    # Increment is how much to add to get to the center of the next square
+    row_start = 0.1458
+    row_increment = 0.2361
+    col_start = 0.1538
+    col_increment = 0.1377
+    is_horizontal = self.width > self.height
+    # The measured boundaries for each color square
+    boundaries = []
+
+    # Iterate through each expected color square center, and find the boundaries of each square
+    for square_row in range(4):
+      row_boundaries = []
+
+      for square_col in range(6):
+        # Calculate how many pixels the approximate center of the color square is offset from the edges of the card
+        num_row_pixels = int((row_start + square_row*row_increment)*self.height)
+        num_col_pixels = int((col_start + square_col*col_increment)*self.width)
+
+        # Set the row/col for the pixel array
+        if is_horizontal:
+          row = self.top + num_row_pixels
+          col = self.left + num_col_pixels
+        else:
+          # Card row/col is inverted
+          row = self.top + num_col_pixels
+          col = self.left + num_row_pixels
+
+        row_boundaries.append(self.find_square_boundaries(row, col, pixels))
+
+      boundaries.append(row_boundaries)
+
+    # Find the start/end for each row and column
+    tolerance = self.width*0.01
+    row_tops = []
+    row_bottoms = []
+    col_lefts = []
+    col_rights = []
+
+    for row in boundaries:
+      current_tops = [square['top'] for square in row]
+      row_tops.append(int(clustered_mode(current_tops, tolerance)))
+      current_bottoms = [square['bottom'] for square in row]
+      row_bottoms.append(int(clustered_mode(current_bottoms, tolerance)))
+
+    for i in range(len(boundaries[0])):
+      col = [row[i] for row in boundaries]
+      current_lefts = [square['left'] for square in col]
+      col_lefts.append(int(clustered_mode(current_lefts, tolerance)))
+      current_rights = [square['right'] for square in col]
+      col_rights.append(int(clustered_mode(current_rights, tolerance)))
+
+    # Calculate the avg color for each square
+    for i, top in enumerate(row_tops):
+      bottom = row_bottoms[i]
+      row_colors = []
+
+      for j, left in enumerate(col_lefts):
+        right = col_rights [j]
+
+        row_colors.append(avg_color(pixels, top, bottom, left, right))
+
+      self.rows.append(row_colors)
+
+    # Orient the color squares to match the reference
+    self.orient_rows_to_reference()
+
+    print(self.rows)
+
+
+
+
+
+
 
   # Calculate the 3x3 matrix to correct the RGB values in the original image
   def calculate_correction_matrix(self):
@@ -399,6 +566,12 @@ class ColorCalibrationCard():
     return (self.pixel_value_is_close(pixel['r'], blob.avg_r) and
             self.pixel_value_is_close(pixel['g'], blob.avg_g) and
             self.pixel_value_is_close(pixel['b'], blob.avg_b))
+
+  # The pixel matches if all RGB values are close
+  def pixel_colors_match(self, p1, p2):
+    return (self.pixel_value_is_close(p1['r'], p2['r']) and
+            self.pixel_value_is_close(p1['g'], p2['g']) and
+            self.pixel_value_is_close(p1['b'], p2['b']))
 
   # Orient the extracted rows to best align with the reference color array
   def orient_rows_to_reference(self):
@@ -541,12 +714,17 @@ class LeafDiskImage:
     # Find the color calibration card
     color_card = [b for b in self.dark_blobs if b.is_calibration_card()][0]
     color_card = ColorCalibrationCard(color_card)
-    color_card.find_color_card_values(self.pixels)
-    color_card.calculate_correction_matrix()
 
-    self.pixels = color_card.correct_pixels(self.pixels)
+    color_card.find_color_card_values2(self.pixels)
 
-    color_card.calculate_color_error()
+
+
+    # color_card.find_color_card_values(self.pixels)
+    # color_card.calculate_correction_matrix()
+
+    # self.pixels = color_card.correct_pixels(self.pixels)
+
+    # color_card.calculate_color_error()
 
     return
 
