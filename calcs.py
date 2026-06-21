@@ -422,7 +422,7 @@ class ColorCalibrationCard():
       'right': current_right
     }
 
-
+  # Find the color values for the calibration card squares
   def find_color_card_values(self, pixels):
     # Percentages for color square row and column locations
     # Start is the center of the first square
@@ -492,13 +492,6 @@ class ColorCalibrationCard():
     # Orient the color squares to match the reference
     self.orient_rows_to_reference()
 
-
-
-
-
-
-
-
   # Calculate the 3x3 matrix to correct the RGB values in the original image
   def calculate_correction_matrix(self):
     # Convert image and reference values to linear RGB
@@ -509,6 +502,8 @@ class ColorCalibrationCard():
 
     # Calculate 3x3 conversion matrix
     self.correction_matrix, _, _, _ = np.linalg.lstsq(linear_observed_colors, linear_reference_colors, rcond=None)
+
+    print(self.correction_matrix)
 
   # The value is close if it is +/- 5 of the average
   def pixel_value_is_close(self, pixel_val, avg_val):
