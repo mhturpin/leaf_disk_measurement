@@ -456,8 +456,6 @@ class LeafDiskImage:
     with open('output/scores.csv', 'w') as f:
       f.write(self.scores_csv())
 
-    return
-
 
 
 
@@ -498,27 +496,38 @@ class LeafDiskImage:
 
     self.label_row_groups()
 
-
   # Create a csv of all candidate scores
   def scores_csv(self):
-    rgb_keys = self.leaf_disk_blobs[0].scores['rgb'].keys()
-    lab_keys = self.leaf_disk_blobs[0].scores['lab'].keys()
+    rgb_keys = list(self.leaf_disk_blobs[0].scores['rgb'].keys())
+    lab_keys = list(self.leaf_disk_blobs[0].scores['lab'].keys())
+    disk_score_keys = list(self.leaf_disk_blobs[0].scores['rgb'][rgb_keys[0]].keys())
 
     # Create the header row with all score keys
-    # TODO: break these out further by aggregate scoring method
-    headers = [''] + [f"rgb_{key}" for key in rgb_keys] + [f"lab_{key}" for key in lab_keys]
+    # Add a comma after each one to create a blank column for doing spread sheet calculations
+    headers = ['']
+
+    for key in rgb_keys:
+      headers += [f"rgb_{key}_{d_key}," for d_key in disk_score_keys]
+
+    for key in lab_keys:
+      headers += [f"lab_{key}_{d_key}," for d_key in disk_score_keys]
+
     lines = [','.join(headers)]
 
+    # Populate with the leaf disk scores
     for blob in self.leaf_disk_blobs:
-      # TODO: break these out further by aggregate scoring method
-      rgb_scores = [str(blob.scores['rgb'][key]) for key in rgb_keys]
-      lab_scores = [str(blob.scores['lab'][key]) for key in lab_keys]
-      # TODO: do this by leaf disk rows
-      line = ["Row 1, Col 1"] + rgb_scores + lab_scores
+      # TODO: do this by leaf disk rows, include a blank row between each row of leaf disks
+      line = ["Row 1 Col 1"]
+
+      for key in rgb_keys:
+        line += [f"{blob.scores['rgb'][key][d_key]}," for d_key in disk_score_keys]
+
+      for key in lab_keys:
+        line += [f"{blob.scores['lab'][key][d_key]}," for d_key in disk_score_keys]
+
       lines.append(','.join(line))
 
     return '\n'.join(lines)
-
 
   # Create a visualization
   def get_highlighted_image(self):
