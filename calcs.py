@@ -203,7 +203,8 @@ class PixelBlob:
     self.right  = float('-inf')
     self.pixel_data = []
     self.row_group = None
-    self.pixel_scores = []
+    self.live_avgs = {}
+    self.scores = {}
 
   @property
   def height(self):
@@ -238,8 +239,8 @@ class PixelBlob:
     self.pixel_data.append({
       'row': row,
       'col': col,
-      'rgb': {'r': rgb[0], 'g': rgb[1], 'b': rgb[2]},
-      'lab': {'l': lab[0], 'a': lab[1], 'b': lab[2]}
+      'rgb': {'r': int(rgb[0]), 'g': int(rgb[1]), 'b': int(rgb[2])},
+      'lab': {'l': int(lab[0]), 'a': int(lab[1]), 'b': int(lab[2])}
     })
 
   # Merge the blob into this one
@@ -333,10 +334,10 @@ class PixelBlob:
   # Set scores for all pixels in the blob
   def set_all_pixel_scores(self):
     for data in self.pixel_data:
-      self.set_all_pixel_scores(values)
+      self.set_pixel_scores(data)
 
   # Set scores for the given pixel
-  def set_all_pixel_scores(self, data):
+  def set_pixel_scores(self, data):
     rgb_r_diff = data['rgb']['r'] - self.live_avgs['rgb']['r']
     rgb_g_diff = data['rgb']['g'] - self.live_avgs['rgb']['g']
     rgb_b_diff = data['rgb']['b'] - self.live_avgs['rgb']['b']
@@ -344,27 +345,52 @@ class PixelBlob:
     lab_a_diff = data['lab']['a'] - self.live_avgs['lab']['a']
     lab_b_diff = data['lab']['b'] - self.live_avgs['lab']['b']
 
+    # TODO: Figure out threshold values for each and subtract them
+
     data['scores'] = {
       'rgb': {
         'r': rgb_r_diff,
         'g': rgb_g_diff,
         'b': rgb_b_diff,
-        'r_minus_g': data['raw']['rgb']['r_minus_g'] - data['r_minus_g'],
-        'r_minus_g_normalized': data['raw']['rgb']['r_minus_g_normalized'] - data['r_minus_g_normalized'],
-        'r_div_g': data['raw']['rgb']['r_div_g'] - data['r_div_g'],
-        'r_minus_avg_g_b': data['raw']['rgb']['r_minus_avg_g_b'] - data['r_minus_avg_g_b'],
-        'delta_e': sqrt(rgb_r_diff**2 + rgb_g_diff**2 + rgb_b_diff**2)
+        'r_minus_g': data['raw']['rgb']['r_minus_g'] - self.live_avgs['rgb']['r_minus_g'],
+        'r_minus_g_normalized': data['raw']['rgb']['r_minus_g_normalized'] - self.live_avgs['rgb']['r_minus_g_normalized'],
+        'r_div_g': data['raw']['rgb']['r_div_g'] - self.live_avgs['rgb']['r_div_g'],
+        'r_minus_avg_g_b': data['raw']['rgb']['r_minus_avg_g_b'] - self.live_avgs['rgb']['r_minus_avg_g_b'],
+        'delta_e': math.sqrt(rgb_r_diff**2 + rgb_g_diff**2 + rgb_b_diff**2)
       },
       'lab': {
         'l': lab_l_diff,
         'a': lab_a_diff,
         'b': lab_b_diff,
         'a_plus_b': data['raw']['lab']['a_plus_b'] - self.live_avgs['lab']['a_plus_b'],
-        'delta_e': sqrt(lab_l_diff**2 + lab_a_diff**2 + lab_b_diff**2)
+        'delta_e': math.sqrt(lab_l_diff**2 + lab_a_diff**2 + lab_b_diff**2)
       }
     }
 
 
+  def set_scores(self):
+    total = 0
+    necrotic_count = 0
+
+    for data in self.pixel_data:
+      total += 0
+      necrotic_count += 1
+      # TODO: Add to histogram bucket
+
+
+
+    for each scoring method:
+      for each pixel score:
+        run the method
+        set the score on blob
+        self.scores
+
+sum # Sum of necrotic pixel values
+avg # Average of necrotic pixel values across all pixels
+avg_of_necrotic # Average of necrotic pixel values across necrotic pixels
+percent_necrotic # Percent of pixels that are necrotic
+# fixed_histogram # Necrotic pixels are counted into buckets, each with a fixed coefficient
+# best_fit_histogram # Necrotic pixels are counted into buckets, with best fit coefficients
 
 
 
@@ -413,18 +439,22 @@ class LeafDiskImage:
     for row, rgb_row in enumerate(self.rgb_image):
       for col, rgb in enumerate(rgb_row):
         # If pixel is dark, add it to blobs
-        if rgb[0] + rgb[1] + rgb[2] <= 500:
+        if int(rgb[0]) + int(rgb[1]) + int(rgb[2]) <= 500:
           add_pixel_to_blobs(row, col, rgb, self.lab_image[row][col], self.dark_blobs)
 
     # Set the leaf disk blobs and group them into rows
     self.leaf_disk_blobs = [b for b in self.dark_blobs if b.is_leaf_disk()]
 
-
-    # Set the candidate pixel values
+    # Calculate all the scores
     for blob in self.leaf_disk_blobs:
       blob.set_all_raw_injury_values()
       blob.set_live_avgs()
       blob.set_all_pixel_scores()
+      blob.set_scores()
+
+    # Group the leaf disk blobs into rows
+    self.set_leaf_disk_rows()
+
 
 
 
@@ -434,13 +464,7 @@ class LeafDiskImage:
     # Outline leaf disks for the highlighted image
     self.label_blob_borders()
 
-    # Group the leaf disk blobs into rows
-    self.set_leaf_disk_rows()
     self.set_avg_radius()
-
-    # Calculate the scores
-    for blob in self.leaf_disk_blobs:
-      self.calculate_disk_score(blob)
 
   # Group the leaf disks into sorted rows
   def set_leaf_disk_rows(self):
