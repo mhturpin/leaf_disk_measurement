@@ -204,7 +204,10 @@ class PixelBlob:
     self.pixel_data = []
     self.row_group = None
     self.live_avgs = {}
-    self.scores = {}
+    self.scores = {
+      'rgb': {},
+      'lab': {}
+    }
 
   @property
   def height(self):
@@ -224,6 +227,14 @@ class PixelBlob:
   @property
   def radius(self):
     return (self.height + self.width) / 4
+
+  def boundaries(self):
+    return {
+      'top': self.top,
+      'bottom': self.bottom,
+      'left': self.left,
+      'right': self.right
+    }
 
   # Returns true if the coordinates are contained by or adjacent to the blob
   def touches(self, row, col):
@@ -345,7 +356,7 @@ class PixelBlob:
     lab_a_diff = data['lab']['a'] - self.live_avgs['lab']['a']
     lab_b_diff = data['lab']['b'] - self.live_avgs['lab']['b']
 
-    # TODO: Figure out threshold values for each and subtract them
+    # TODO: Figure out threshold values for each and subtract them, including zeroing live pixels: max(s, 0)
 
     data['scores'] = {
       'rgb': {
@@ -367,50 +378,37 @@ class PixelBlob:
       }
     }
 
-
+  # Set all the candidate disk scores
+  # Each candidate disk scoring method is run for each pixel scoring method
   def set_scores(self):
+    rgb_keys = self.pixel_data[0]['scores']['rgb'].keys()
+    lab_keys = self.pixel_data[0]['scores']['lab'].keys()
+
+    for key in rgb_keys:
+      self.scores['rgb'][key] = self.calculate_scores('rgb', key)
+
+    for key in lab_keys:
+      self.scores['lab'][key] = self.calculate_scores('lab', key)
+
+  # Calculate the scores for the given pixel scoring method
+  def calculate_scores(self, color_space, key):
+    num_pixels = len(self.pixel_data)
     total = 0
     necrotic_count = 0
 
     for data in self.pixel_data:
-      total += 0
-      necrotic_count += 1
-      # TODO: Add to histogram bucket
+      if data['scores'][color_space][key] != 0:
+        total += data['scores'][color_space][key]
+        necrotic_count += 1
+        # TODO: Add to histogram bucket
 
-
-
-    for each scoring method:
-      for each pixel score:
-        run the method
-        set the score on blob
-        self.scores
-
-sum # Sum of necrotic pixel values
-avg # Average of necrotic pixel values across all pixels
-avg_of_necrotic # Average of necrotic pixel values across necrotic pixels
-percent_necrotic # Percent of pixels that are necrotic
-# fixed_histogram # Necrotic pixels are counted into buckets, each with a fixed coefficient
-# best_fit_histogram # Necrotic pixels are counted into buckets, with best fit coefficients
-
-
-
-
-
-
-  def boundaries(self):
     return {
-      'top': self.top,
-      'bottom': self.bottom,
-      'left': self.left,
-      'right': self.right
-    }
+      'avg': total/num_pixels, # Average of necrotic pixel values across all pixels
+      'avg_of_necrotic': total/necrotic_count, # Average of necrotic pixel values across necrotic pixels
+      'percent_necrotic': necrotic_count/num_pixels, # Percent of pixels that are necrotic
 
-  def to_dict(self):
-    return {
-      'top': self.top,
-      'bottom': self.bottom,
-      'left': self.left,
-      'right': self.right
+      # fixed_histogram # Necrotic pixels are counted into buckets, each with a fixed coefficient
+      # best_fit_histogram # Necrotic pixels are counted into buckets, with best fit coefficients
     }
 
 
