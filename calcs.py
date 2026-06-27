@@ -6,6 +6,7 @@ import os
 import math
 import numpy as np
 from PIL import Image
+from skimage import io, color
 
 # ============================================== #
 # Utility functions (top-level, available everywhere)
@@ -282,6 +283,8 @@ class PixelBlob:
 class LeafDiskImage:
   def __init__(self, file_path):
     self.file_path       = file_path
+    self.rgb_image       = None
+    self.lab_image       = None
     self.dark_blobs      = []
     self.leaf_disk_blobs = []
     self.rows            = []
@@ -289,7 +292,7 @@ class LeafDiskImage:
 
   # Do all the image processing from loading the file to determining necrotic areas
   def process_image(self):
-    self.pixels = self.load_pixels(self.file_path)
+    self.load_pixels(self.file_path)
     height = len(self.pixels)
     width  = len(self.pixels[0])
 
@@ -301,6 +304,8 @@ class LeafDiskImage:
         # If pixel is dark, add it to blobs
         if pixel['r'] + pixel['g'] + pixel['b'] <= 500:
           pixel['is_dark'] = True
+          # TODO: might need to move this after so that we can calculate live avgs first
+          self.set_pixel_injury_values(row, col)
           add_pixel_to_blobs(row, col, pixel, self.dark_blobs)
 
     # Set the leaf disk blobs and group them into rows
@@ -312,6 +317,58 @@ class LeafDiskImage:
     # Calculate the scores
     for blob in self.leaf_disk_blobs:
       self.calculate_disk_score(blob)
+
+  # Group the leaf disks into sorted rows
+  def set_leaf_disk_rows(self):
+    self.rows = []
+
+    for blob in self.leaf_disk_blobs:
+      assigned = False
+
+      # Try to find a row that it matches
+      for i, row in enumerate(self.rows):
+        mid = blob.center_coordinates['center_row']
+
+        if not assigned and row[0].top < mid < row[0].bottom:
+          assigned = True
+          blob.row_group = i
+          row.append(blob)
+
+      # Otherwise, create a new row
+      if not assigned:
+        blob.row_group = len(self.rows)
+        self.rows.append([blob])
+
+    # Sort the leaf disk blobs within each row, left to right
+    for row in self.rows:
+      row.sort(key=lambda b: b.left)
+
+    self.label_row_groups()
+
+  def set_pixel_injury_values(self, row, col):
+    pixel = self.pixels[row][col]
+    r = pixel['r']
+    g = pixel['g']
+    b = pixel['b']
+
+    pixel['r_minus_g'] = r - g
+    pixel['r_minus_g_normalized'] = (r - g)/max(r + g + b, 1)
+    pixel['r_div_g'] = r/max(g, 1)
+    pixel['r_minus_avg_g_b'] = r - ((g + b)/2)
+
+    lab_pixel = self.lab_image[row][col]
+    l = lab_pixel[0]
+    a = lab_pixel[1]
+    b = lab_pixel[2]
+
+    pixel['cielab_a'] = a
+    pixel['cielab_b'] = b
+    pixel['cielab_l'] = l
+    pixel['cielab_a_plus_b'] = a + b
+
+    # TODO: Can't do these yet because the live avg values are needed first
+    # pixel['rgb_delta_e'] = sqrt((r1 - r2)**2 + (g1 - g2)**2 + (b1 - b2)**2)
+    # pixel['cielab_delta_e'] =
 
   # Create a visualization
   def get_highlighted_image(self):
@@ -359,7 +416,7 @@ class LeafDiskImage:
   def load_pixels(self, file_path):
     img = Image.open(file_path)
     width, height = img.size
-    pixels = [[{'r': 0, 'g': 0, 'b': 0} for _ in range(width)] for _ in range(height)]
+    self.pixels = [[{'r': 0, 'g': 0, 'b': 0} for _ in range(width)] for _ in range(height)]
 
     for row in range(height):
       for col in range(width):
@@ -368,8 +425,11 @@ class LeafDiskImage:
         g = pixel[1]
         b = pixel[2]
 
-        pixels[row][col] = {'r': r, 'g': g, 'b': b}
-    return pixels
+        self.pixels[row][col] = {'r': r, 'g': g, 'b': b}
+
+    # Convert RGB to Lab
+    self.rgb_image = io.imread(file_path)
+    self.lab_image = color.rgb2lab(self.rgb_image)
 
   # Mark blob borders on the image
   def label_blob_borders(self):
