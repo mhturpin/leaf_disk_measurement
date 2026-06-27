@@ -397,10 +397,11 @@ class PixelBlob:
     necrotic_count = 0
 
     for data in self.pixel_data:
-      if data['scores'][color_space][key] != 0:
-        total += data['scores'][color_space][key]
-        necrotic_count += 1
-        # TODO: Add to histogram bucket
+      # TODO: figure out what values are after thresholding
+      # if data['scores'][color_space][key] >= 0:
+      total += data['scores'][color_space][key]
+      necrotic_count += 1
+      # TODO: Add to histogram bucket
 
     return {
       'avg': total/num_pixels, # Average of necrotic pixel values across all pixels
@@ -450,14 +451,20 @@ class LeafDiskImage:
       blob.set_all_pixel_scores()
       blob.set_scores()
 
+    print(self.leaf_disk_blobs[0].scores)
+
+    with open('output/scores.csv', 'w') as f:
+      f.write(self.scores_csv())
+
+    return
+
+
+
+
+
+
     # Group the leaf disk blobs into rows
     self.set_leaf_disk_rows()
-
-
-
-
-
-
 
     # Outline leaf disks for the highlighted image
     self.label_blob_borders()
@@ -490,6 +497,28 @@ class LeafDiskImage:
       row.sort(key=lambda b: b.left)
 
     self.label_row_groups()
+
+
+  # Create a csv of all candidate scores
+  def scores_csv(self):
+    rgb_keys = self.leaf_disk_blobs[0].scores['rgb'].keys()
+    lab_keys = self.leaf_disk_blobs[0].scores['lab'].keys()
+
+    # Create the header row with all score keys
+    # TODO: break these out further by aggregate scoring method
+    headers = [''] + [f"rgb_{key}" for key in rgb_keys] + [f"lab_{key}" for key in lab_keys]
+    lines = [','.join(headers)]
+
+    for blob in self.leaf_disk_blobs:
+      # TODO: break these out further by aggregate scoring method
+      rgb_scores = [str(blob.scores['rgb'][key]) for key in rgb_keys]
+      lab_scores = [str(blob.scores['lab'][key]) for key in lab_keys]
+      # TODO: do this by leaf disk rows
+      line = ["Row 1, Col 1"] + rgb_scores + lab_scores
+      lines.append(','.join(line))
+
+    return '\n'.join(lines)
+
 
   # Create a visualization
   def get_highlighted_image(self):
@@ -602,6 +631,10 @@ def main():
 
     image = LeafDiskImage(file_path)
     image.process_image()
+    return
+
+
+
 
     base = os.path.splitext(os.path.basename(file_path))[0]
     dir_name = 'output'
