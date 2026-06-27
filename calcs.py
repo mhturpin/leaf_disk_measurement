@@ -105,7 +105,7 @@ def linear_regression(data):
 
 # Add the pixel to the list of blobs
 # optionally provide a function to determine if it is a match
-def add_pixel_to_blobs(row, col, pixel, blobs, is_match=None):
+def add_pixel_to_blobs(row, col, rgb, lab, blobs, is_match=None):
   indices = find_touching_blob_indices(row, col, blobs, is_match)
 
   if len(indices) == 0:
@@ -124,7 +124,7 @@ def add_pixel_to_blobs(row, col, pixel, blobs, is_match=None):
       matching_blob.merge(blobs[i])
       blobs.pop(i)
 
-  matching_blob.add_pixel(row, col, pixel)
+  matching_blob.add_pixel(row, col, rgb, lab)
 
 # Return a sorted array of indices of all blobs that touch the given pixel
 def find_touching_blob_indices(row, col, blobs, is_match):
@@ -201,8 +201,9 @@ class PixelBlob:
     self.bottom = float('-inf')
     self.left   = float('inf')
     self.right  = float('-inf')
-    self.coordinates = []
+    self.pixel_data = []
     self.row_group = None
+    self.pixel_scores = []
 
   @property
   def height(self):
@@ -228,13 +229,18 @@ class PixelBlob:
     return (self.top - 1) <= row <= (self.bottom + 1) and (self.left - 1) <= col <= (self.right + 1)
 
   # Adjust the boundaries if necessary and add the coordinates to the array
-  def add_pixel(self, row, col, pixel):
+  def add_pixel(self, row, col, rgb, lab):
     if self.top > row: self.top = row
     if self.bottom < row: self.bottom = row
     if self.left > col: self.left = col
     if self.right < col: self.right = col
 
-    self.coordinates.append({'row': row, 'col': col})
+    self.pixel_data.append({
+      'row': row,
+      'col': col,
+      'rgb': {'r': rgb[0], 'g': rgb[1], 'b': rgb[2]},
+      'lab': {'l': lab[0], 'a': lab[1], 'b': lab[2]}
+    })
 
   # Merge the blob into this one
   def merge(self, blob):
@@ -243,18 +249,127 @@ class PixelBlob:
     self.left   = min(self.left,   blob.left)
     self.right  = max(self.right,  blob.right)
 
-    self.coordinates.extend(blob.coordinates)
+    self.pixel_data.extend(blob.pixel_data)
 
   # Returns true if the blob's height and width are roughly equal,
   # it has roughly the number of dark pixels expected if it were circular,
   # and the radius is greater than 62 (the image shouldn't be less than 200 dpi, leaf disk radius is 5/16")
   def is_leaf_disk(self):
-    is_square           = is_within_tolerance(self.height, self.width, 0.1)
-    expected_pixels     = math.pi * (self.radius**2)
-    is_correct_pixel_count = is_within_tolerance(expected_pixels, len(self.coordinates), 0.1)
-    is_large_enough     = self.radius > 62
+    is_square = is_within_tolerance(self.height, self.width, 0.1)
+    expected_pixels = math.pi * (self.radius**2)
+    is_correct_pixel_count = is_within_tolerance(expected_pixels, len(self.pixel_data), 0.1)
+    is_large_enough = self.radius > 62
 
     return is_square and is_correct_pixel_count and is_large_enough
+
+  # Set the live averages for all the candidate injury scores
+  def set_live_avgs(self):
+    c_row = self.center_coordinates['center_row']
+    c_col = self.center_coordinates['center_col']
+    count = 0
+    rgb_r_total = 0
+    rgb_g_total = 0
+    rgb_b_total = 0
+    lab_l_total = 0
+    lab_a_total = 0
+    lab_b_total = 0
+
+    for data in self.pixel_data:
+      row = data['row']
+      col = data['col']
+
+      # If the pixel is inside the known live area, add it to the totals
+      # Adjust depending on the extent of necrosis
+      if point_distance(row, col, c_row, c_col) < self.radius/2:
+        count += 1
+        rgb_r_total += data['rgb']['r']
+        rgb_g_total += data['rgb']['g']
+        rgb_b_total += data['rgb']['b']
+        lab_l_total += data['lab']['l']
+        lab_a_total += data['lab']['a']
+        lab_b_total += data['lab']['b']
+
+    self.live_avgs = {
+      'rgb': {
+        'r': rgb_r_total/count,
+        'g': rgb_g_total/count,
+        'b': rgb_b_total/count,
+        'r_minus_g': (rgb_r_total + rgb_g_total)/count,
+        'r_minus_g_normalized': (rgb_r_total + rgb_g_total)/(rgb_r_total + rgb_g_total + rgb_b_total),
+        'r_div_g': rgb_r_total/rgb_g_total,
+        'r_minus_avg_g_b': (rgb_r_total - (rgb_g_total + rgb_b_total)/2)/count
+      },
+      'lab': {
+        'l': lab_l_total/count,
+        'a': lab_a_total/count,
+        'b': lab_b_total/count,
+        'a_plus_b': (lab_a_total + lab_b_total)/count
+      }
+    }
+
+  # Set raw candidate values for all pixels in the blob
+  def set_all_raw_injury_values(self):
+    for data in self.pixel_data:
+      self.set_raw_injury_values(data)
+
+  # Set the raw candidate values for the given pixel
+  def set_raw_injury_values(self, data):
+    r = data['rgb']['r']
+    g = data['rgb']['g']
+    b = data['rgb']['b']
+
+    data['raw'] = {
+      'rgb': {
+        'r_minus_g': r - g,
+        'r_minus_g_normalized': (r - g)/max(r + g + b, 1),
+        'r_div_g': r/max(g, 1),
+        'r_minus_avg_g_b': r - ((g + b)/2)
+      },
+      'lab': {
+        'a_plus_b': data['lab']['a'] + data['lab']['b']
+      }
+    }
+
+  # Set scores for all pixels in the blob
+  def set_all_pixel_scores(self):
+    for data in self.pixel_data:
+      self.set_all_pixel_scores(values)
+
+  # Set scores for the given pixel
+  def set_all_pixel_scores(self, data):
+    rgb_r_diff = data['rgb']['r'] - self.live_avgs['rgb']['r']
+    rgb_g_diff = data['rgb']['g'] - self.live_avgs['rgb']['g']
+    rgb_b_diff = data['rgb']['b'] - self.live_avgs['rgb']['b']
+    lab_l_diff = data['lab']['l'] - self.live_avgs['lab']['l']
+    lab_a_diff = data['lab']['a'] - self.live_avgs['lab']['a']
+    lab_b_diff = data['lab']['b'] - self.live_avgs['lab']['b']
+
+    data['scores'] = {
+      'rgb': {
+        'r': rgb_r_diff,
+        'g': rgb_g_diff,
+        'b': rgb_b_diff,
+        'r_minus_g': data['raw']['rgb']['r_minus_g'] - data['r_minus_g'],
+        'r_minus_g_normalized': data['raw']['rgb']['r_minus_g_normalized'] - data['r_minus_g_normalized'],
+        'r_div_g': data['raw']['rgb']['r_div_g'] - data['r_div_g'],
+        'r_minus_avg_g_b': data['raw']['rgb']['r_minus_avg_g_b'] - data['r_minus_avg_g_b'],
+        'delta_e': sqrt(rgb_r_diff**2 + rgb_g_diff**2 + rgb_b_diff**2)
+      },
+      'lab': {
+        'l': lab_l_diff,
+        'a': lab_a_diff,
+        'b': lab_b_diff,
+        'a_plus_b': data['raw']['lab']['a_plus_b'] - self.live_avgs['lab']['a_plus_b'],
+        'delta_e': sqrt(lab_l_diff**2 + lab_a_diff**2 + lab_b_diff**2)
+      }
+    }
+
+
+
+
+
+
+
 
   def boundaries(self):
     return {
@@ -288,29 +403,38 @@ class LeafDiskImage:
     self.dark_blobs      = []
     self.leaf_disk_blobs = []
     self.rows            = []
-    self.pixels          = None
 
   # Do all the image processing from loading the file to determining necrotic areas
   def process_image(self):
-    self.load_pixels(self.file_path)
-    height = len(self.pixels)
-    width  = len(self.pixels[0])
+    # Load image (both RGB and Lab versions)
+    self.load_image(self.file_path)
 
     # Find dark blobs
-    for row in range(height):
-      for col in range(width):
-        pixel = self.pixels[row][col]
-
+    for row, rgb_row in enumerate(self.rgb_image):
+      for col, rgb in enumerate(rgb_row):
         # If pixel is dark, add it to blobs
-        if pixel['r'] + pixel['g'] + pixel['b'] <= 500:
-          pixel['is_dark'] = True
-          # TODO: might need to move this after so that we can calculate live avgs first
-          self.set_pixel_injury_values(row, col)
-          add_pixel_to_blobs(row, col, pixel, self.dark_blobs)
+        if rgb[0] + rgb[1] + rgb[2] <= 500:
+          add_pixel_to_blobs(row, col, rgb, self.lab_image[row][col], self.dark_blobs)
 
     # Set the leaf disk blobs and group them into rows
     self.leaf_disk_blobs = [b for b in self.dark_blobs if b.is_leaf_disk()]
+
+
+    # Set the candidate pixel values
+    for blob in self.leaf_disk_blobs:
+      blob.set_all_raw_injury_values()
+      blob.set_live_avgs()
+      blob.set_all_pixel_scores()
+
+
+
+
+
+
+    # Outline leaf disks for the highlighted image
     self.label_blob_borders()
+
+    # Group the leaf disk blobs into rows
     self.set_leaf_disk_rows()
     self.set_avg_radius()
 
@@ -344,31 +468,6 @@ class LeafDiskImage:
       row.sort(key=lambda b: b.left)
 
     self.label_row_groups()
-
-  def set_pixel_injury_values(self, row, col):
-    pixel = self.pixels[row][col]
-    r = pixel['r']
-    g = pixel['g']
-    b = pixel['b']
-
-    pixel['r_minus_g'] = r - g
-    pixel['r_minus_g_normalized'] = (r - g)/max(r + g + b, 1)
-    pixel['r_div_g'] = r/max(g, 1)
-    pixel['r_minus_avg_g_b'] = r - ((g + b)/2)
-
-    lab_pixel = self.lab_image[row][col]
-    l = lab_pixel[0]
-    a = lab_pixel[1]
-    b = lab_pixel[2]
-
-    pixel['cielab_a'] = a
-    pixel['cielab_b'] = b
-    pixel['cielab_l'] = l
-    pixel['cielab_a_plus_b'] = a + b
-
-    # TODO: Can't do these yet because the live avg values are needed first
-    # pixel['rgb_delta_e'] = sqrt((r1 - r2)**2 + (g1 - g2)**2 + (b1 - b2)**2)
-    # pixel['cielab_delta_e'] =
 
   # Create a visualization
   def get_highlighted_image(self):
@@ -413,22 +512,10 @@ class LeafDiskImage:
     return lines
 
   # Load the pixels from the image
-  def load_pixels(self, file_path):
-    img = Image.open(file_path)
-    width, height = img.size
-    self.pixels = [[{'r': 0, 'g': 0, 'b': 0} for _ in range(width)] for _ in range(height)]
-
-    for row in range(height):
-      for col in range(width):
-        pixel = img.getpixel((col, row))
-        r = pixel[0]
-        g = pixel[1]
-        b = pixel[2]
-
-        self.pixels[row][col] = {'r': r, 'g': g, 'b': b}
-
-    # Convert RGB to Lab
+  def load_image(self, file_path):
+    # Load image
     self.rgb_image = io.imread(file_path)
+    # Convert RGB to Lab
     self.lab_image = color.rgb2lab(self.rgb_image)
 
   # Mark blob borders on the image
