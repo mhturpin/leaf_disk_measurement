@@ -166,32 +166,6 @@ def group_blobs_into_rows(blobs):
 def value_error(observed, reference):
   return abs(observed - reference) / reference
 
-# Convert sRGB value to linear RGB
-def srgb_to_linear(value):
-  value /= 255
-
-  if value <= 0.04045:
-    return value / 12.92
-  else:
-    return ((value + 0.055) / 1.055) ** 2.4
-
-# Convert sRGB pixel to linear RGB
-def srgb_pixel_to_linear(pixel):
-  return [srgb_to_linear(val) for val in pixel]
-
-# Convert linear RGB value to sRGB
-def linear_to_srgb(value):
-  if value <= 0.0031308:
-    srgb = value * 12.92
-  else:
-    srgb = (1.055 * (value ** (1/2.4)) - 0.055)
-
-  return srgb * 255
-
-# Convert sRGB pixel to linear RGB
-def linear_pixel_to_srgb(pixel):
-  return [linear_to_srgb(val) for val in pixel]
-
 # Flatten 2D array of pixels to 1D array and
 # convert RGB dicts to an array ordered R, G, B
 # Result is a 2d array
@@ -227,6 +201,7 @@ class PixelBlob:
     self.left   = float('inf')
     self.right  = float('-inf')
     self.coordinates = []
+    self.row_group = None
 
   @property
   def height(self):
@@ -242,6 +217,10 @@ class PixelBlob:
       'center_row': (self.bottom + self.top) / 2,
       'center_col': (self.right + self.left) / 2
     }
+
+  @property
+  def radius(self):
+    return (self.height + self.width) / 4
 
   # Returns true if the coordinates are contained by or adjacent to the blob
   def touches(self, row, col):
@@ -265,42 +244,14 @@ class PixelBlob:
 
     self.coordinates.extend(blob.coordinates)
 
-  # Add one new value to the existing average
-  def add_value_to_avg(self, avg, new_val):
-    return (avg * len(self.coordinates) + new_val) / (len(self.coordinates) + 1)
-
-  # Combine averages of two blobs
-  def merge_avgs(self, avg_1, len_1, avg_2, len_2):
-    return ((avg_1 * len_1) + (avg_2 * len_2)) / (len_1 + len_2)
-
   # Returns true if the blob's height and width are roughly equal,
   # it has roughly the number of dark pixels expected if it were circular,
   # and the radius is greater than 62 (the image shouldn't be less than 200 dpi, leaf disk radius is 5/16")
   def is_leaf_disk(self):
     is_square           = is_within_tolerance(self.height, self.width, 0.1)
-    expected_pixels     = math.pi * self.radius**2
+    expected_pixels     = math.pi * (self.radius**2)
     is_correct_pixel_count = is_within_tolerance(expected_pixels, len(self.coordinates), 0.1)
     is_large_enough     = self.radius > 62
-
-    return is_square and is_correct_pixel_count and is_large_enough
-
-  # Returns true if the blob has an aspect ratio of 2.25 x 3.25
-  # and the height and width are greater than 400 (the image shouldn't be less than 200 dpi, minimum card dimension is 2.25)
-  def is_calibration_card(self):
-    aspect_ratio     = self.height / max(self.width, 1)
-    is_correct_ratio = is_within_tolerance(aspect_ratio, 2.25 / 3.25, 0.2) or is_within_tolerance(aspect_ratio, 3.25 / 2.25, 0.2)
-    is_large_enough  = self.height > 400 and self.width > 400
-
-    return is_correct_ratio and is_large_enough
-
-  # Returns true if the blob is square,
-  # it has roughly the number of pixels expected if it were square,
-  # and the height and width are greater than 65 (the image shouldn't be less than 200 dpi, squares are about 0.325")
-  def is_color_square(self):
-    is_square           = is_within_tolerance(self.height, self.width, 0.1)
-    expected_pixels     = self.height * self.width
-    is_correct_pixel_count = is_within_tolerance(expected_pixels, len(self.coordinates), 0.1)
-    is_large_enough     = self.height > 65 and self.width > 65
 
     return is_square and is_correct_pixel_count and is_large_enough
 
@@ -319,303 +270,6 @@ class PixelBlob:
       'left': self.left,
       'right': self.right
     }
-
-
-# ============================================== #
-# ColorCalibrationCard class
-# Info about process: https://www.imatest.com/docs/colormatrix/
-# ============================================== #
-
-class ColorCalibrationCard():
-  # Reference values for the Calibrite ColorChecker Classic Mini
-  REFERENCE_RGB = [
-    [
-      {'r': 115, 'g': 82, 'b': 68},
-      {'r': 194, 'g': 150, 'b': 130},
-      {'r': 98, 'g': 122, 'b': 157},
-      {'r': 87, 'g': 108, 'b': 67},
-      {'r': 133, 'g': 128, 'b': 177},
-      {'r': 103, 'g': 189, 'b': 170}
-    ],
-    [
-      {'r': 214, 'g': 126, 'b': 44},
-      {'r': 80, 'g': 91, 'b': 166},
-      {'r': 193, 'g': 90, 'b': 99},
-      {'r': 94, 'g': 60, 'b': 108},
-      {'r': 157, 'g': 188, 'b': 64},
-      {'r': 224, 'g': 163, 'b': 46}
-    ],
-    [
-      {'r': 56, 'g': 61, 'b': 150},
-      {'r': 70, 'g': 148, 'b': 73},
-      {'r': 175, 'g': 54, 'b': 60},
-      {'r': 231, 'g': 199, 'b': 31},
-      {'r': 187, 'g': 86, 'b': 149},
-      {'r': 8, 'g': 133, 'b': 161}
-    ],
-    [
-      {'r': 243, 'g': 243, 'b': 243},
-      {'r': 200, 'g': 200, 'b': 200},
-      {'r': 160, 'g': 160, 'b': 160},
-      {'r': 122, 'g': 122, 'b': 122},
-      {'r': 85, 'g': 85, 'b': 85},
-      {'r': 52, 'g': 52, 'b': 52}
-    ]
-  ]
-
-  def __init__(self, blob):
-    self.top    = blob.top
-    self.bottom = blob.bottom
-    self.left   = blob.left
-    self.right  = blob.right
-    self.color_squares = []
-    self.rows          = []
-    self.correction_matrix = []
-
-  @property
-  def height(self):
-    return self.bottom - self.top
-
-  @property
-  def width(self):
-    return self.right - self.left
-
-  # From the starting pixel, find the boundaries where the color is different from the initial color
-  def find_square_boundaries(self, start_row, start_col, pixels):
-    # Find the average reference color
-    ref_color = avg_color(pixels, start_row - 5, start_row + 5, start_col - 5, start_col + 5)
-
-    current_top = start_row
-    current_bottom = start_row
-    current_left = start_col
-    current_right = start_col
-
-    # Find top
-    row = start_row
-    col = start_col
-    while self.pixel_colors_match(pixels[row][col], ref_color):
-      current_top = row
-      row -= 1
-
-    # Find bottom
-    row = start_row
-    while self.pixel_colors_match(pixels[row][col], ref_color):
-      current_bottom = row
-      row += 1
-
-    # Find left
-    row = start_row
-    while self.pixel_colors_match(pixels[row][col], ref_color):
-      current_left = col
-      col -= 1
-
-    # Find right
-    col = start_col
-    while self.pixel_colors_match(pixels[row][col], ref_color):
-      current_right = col
-      col += 1
-
-    return {
-      'top': current_top,
-      'bottom': current_bottom,
-      'left': current_left,
-      'right': current_right
-    }
-
-  # Find the color values for the calibration card squares
-  def find_color_card_values(self, pixels):
-    # Percentages for color square row and column locations
-    # Start is the center of the first square
-    # Increment is how much to add to get to the center of the next square
-    row_start = 0.1458
-    row_increment = 0.2361
-    col_start = 0.1538
-    col_increment = 0.1377
-    is_horizontal = self.width > self.height
-    # The measured boundaries for each color square
-    boundaries = []
-
-    # Iterate through each expected color square center, and find the boundaries of each square
-    for square_row in range(4):
-      row_boundaries = []
-
-      for square_col in range(6):
-        # Calculate how many pixels the approximate center of the color square is offset from the edges of the card
-        num_row_pixels = int((row_start + square_row*row_increment)*self.height)
-        num_col_pixels = int((col_start + square_col*col_increment)*self.width)
-
-        # Set the row/col for the pixel array
-        if is_horizontal:
-          row = self.top + num_row_pixels
-          col = self.left + num_col_pixels
-        else:
-          # Card row/col is inverted
-          row = self.top + num_col_pixels
-          col = self.left + num_row_pixels
-
-        row_boundaries.append(self.find_square_boundaries(row, col, pixels))
-
-      boundaries.append(row_boundaries)
-
-    # Find the start/end for each row and column
-    tolerance = self.width*0.01
-    row_tops = []
-    row_bottoms = []
-    col_lefts = []
-    col_rights = []
-
-    for row in boundaries:
-      current_tops = [square['top'] for square in row]
-      row_tops.append(int(clustered_mode(current_tops, tolerance)))
-      current_bottoms = [square['bottom'] for square in row]
-      row_bottoms.append(int(clustered_mode(current_bottoms, tolerance)))
-
-    for i in range(len(boundaries[0])):
-      col = [row[i] for row in boundaries]
-      current_lefts = [square['left'] for square in col]
-      col_lefts.append(int(clustered_mode(current_lefts, tolerance)))
-      current_rights = [square['right'] for square in col]
-      col_rights.append(int(clustered_mode(current_rights, tolerance)))
-
-    # Calculate the avg color for each square
-    for i, top in enumerate(row_tops):
-      bottom = row_bottoms[i]
-      row_colors = []
-
-      for j, left in enumerate(col_lefts):
-        right = col_rights [j]
-
-        row_colors.append(avg_color(pixels, top, bottom, left, right))
-
-      self.rows.append(row_colors)
-
-    # Orient the color squares to match the reference
-    self.orient_rows_to_reference()
-
-  # Calculate the 3x3 matrix to correct the RGB values in the original image
-  def calculate_correction_matrix(self):
-    # Convert image and reference values to linear RGB
-    observed_colors = pixels_to_rgb_array(self.get_avg_color_square_pixels())
-    reference_colors = pixels_to_rgb_array(self.REFERENCE_RGB)
-    linear_observed_colors = [srgb_pixel_to_linear(c) for c in observed_colors]
-    linear_reference_colors = [srgb_pixel_to_linear(c) for c in reference_colors]
-
-    # Calculate 3x3 conversion matrix
-    self.correction_matrix, _, _, _ = np.linalg.lstsq(linear_observed_colors, linear_reference_colors, rcond=None)
-
-    print(self.correction_matrix)
-
-  # The value is close if it is +/- 5 of the average
-  def pixel_value_is_close(self, pixel_val, avg_val):
-    return avg_val - 15 <= pixel_val <= avg_val + 15
-
-  # The pixel matches if all RGB values are close
-  def pixel_colors_match(self, p1, p2):
-    return (self.pixel_value_is_close(p1['r'], p2['r']) and
-            self.pixel_value_is_close(p1['g'], p2['g']) and
-            self.pixel_value_is_close(p1['b'], p2['b']))
-
-  # Orient the extracted rows to best align with the reference color array
-  def orient_rows_to_reference(self):
-    # If the number of rows is not aligned, rotate 90 degrees
-    if len(self.rows) != len(self.REFERENCE_RGB):
-      self.rotate_color_squares_90()
-
-    # Calculate differences
-    error_1 = self.calculate_color_error()
-    self.rotate_color_squares_180()
-    error_2 = self.calculate_color_error()
-
-    # If the first error was less, set it back to that orientation
-    if error_1 < error_2:
-      self.rotate_color_squares_180()
-
-  # Rotate the color_squares array 90 degrees counter clockwise
-  def rotate_color_squares_90(self):
-    num_rows = len(self.rows)
-    num_cols = len(self.rows[0])
-
-    # i = 0 to num_rows - 1
-    # j = num_cols - 1 to 0
-    self.rows = [[self.rows[i][j] for i in range(num_rows)] for j in range(num_cols - 1, -1, -1)]
-
-  # Rotate the color_squares array 180 degrees
-  def rotate_color_squares_180(self):
-    self.rotate_color_squares_90()
-    self.rotate_color_squares_90()
-
-  # Calculate the difference between the color squares and the reference array
-  def calculate_color_error(self):
-    before_error = 0
-
-    for i, row in enumerate(self.rows):
-      for j, square in enumerate(row):
-        before_error += value_error(square['r'], self.REFERENCE_RGB[i][j]['r'])
-        before_error += value_error(square['g'], self.REFERENCE_RGB[i][j]['g'])
-        before_error += value_error(square['b'], self.REFERENCE_RGB[i][j]['b'])
-
-    print(f"before_error: {before_error}")
-
-    if len(self.correction_matrix) == 3:
-      corrected_squares = self.correct_pixels(self.get_avg_color_square_pixels())
-      after_error = 0
-
-      for i, row in enumerate(corrected_squares):
-        for j, square in enumerate(row):
-          after_error += value_error(square['r'], self.REFERENCE_RGB[i][j]['r'])
-          after_error += value_error(square['g'], self.REFERENCE_RGB[i][j]['g'])
-          after_error += value_error(square['b'], self.REFERENCE_RGB[i][j]['b'])
-
-      print(f"after_error: {after_error}")
-
-
-    return before_error
-
-  # Convert the average RGB values for the color squares into a pixel array
-  def get_avg_color_square_pixels(self):
-    result = []
-
-    for row in self.rows:
-      result.append([{'r': square['r'], 'g': square['g'], 'b': square['b']} for square in row])
-
-    return result
-
-  # Color correct the pixels using the correction_matrix
-  def correct_pixels(self, pixels):
-    # Transform to a matrix of RGB values and linearize
-    rgb_array = pixels_to_rgb_array(pixels)
-    linear_rgb_array = [srgb_pixel_to_linear(rgb) for rgb in rgb_array]
-
-    # Multiply by correction_matrix
-    corrected_rgb_array = linear_rgb_array @ self.correction_matrix
-
-    # Convert to srgb
-    rgb_array = [linear_pixel_to_srgb(rgb) for rgb in corrected_rgb_array]
-
-    # Convert to 2D array
-    return rgb_array_to_pixels(rgb_array, len(pixels), len(pixels[0]))
-
-
-# ============================================== #
-# LeafDisk class
-# A PixelBlob that is a leaf disk
-# ============================================== #
-
-class LeafDisk(PixelBlob):
-  def __init__(self, blob, pixels):
-    self.top    = blob.top
-    self.bottom = blob.bottom
-    self.left   = blob.left
-    self.right  = blob.right
-    self.coordinates          = blob.coordinates
-    self.necrotic_coordinates = [c for c in blob.coordinates if pixels[c['row']][c['col']]['is_necrotic']]
-    self.live_coordinates     = [c for c in blob.coordinates if pixels[c['row']][c['col']]['is_dark']]
-    self.row_group = None
-    self.avg_necrotic_value_sum = None
-
-  @property
-  def radius(self):
-    return (self.height + self.width) / 4
 
 
 # ============================================== #
@@ -644,36 +298,10 @@ class LeafDiskImage:
       for col in range(width):
         pixel = self.pixels[row][col]
 
-        # If pixel is too light, skip
-        if pixel['r'] + pixel['g'] + pixel['b'] >= 500:
-          continue
-
-        pixel['is_dark']     = True
-        pixel['is_necrotic'] = pixel['r'] > pixel['g']
-
-        add_pixel_to_blobs(row, col, pixel, self.dark_blobs)
-
-    # Find the color calibration card
-    color_card = [b for b in self.dark_blobs if b.is_calibration_card()][0]
-    color_card = ColorCalibrationCard(color_card)
-
-    color_card.find_color_card_values(self.pixels)
-
-    color_card.calculate_correction_matrix()
-
-    self.pixels = color_card.correct_pixels(self.pixels)
-
-    color_card.calculate_color_error()
-
-    return
-
-
-
-
-
-
-
-
+        # If pixel is dark, add it to blobs
+        if pixel['r'] + pixel['g'] + pixel['b'] <= 500:
+          pixel['is_dark'] = True
+          add_pixel_to_blobs(row, col, pixel, self.dark_blobs)
 
     # Set the leaf disk blobs and group them into rows
     self.leaf_disk_blobs = [b for b in self.dark_blobs if b.is_leaf_disk()]
@@ -786,61 +414,6 @@ class LeafDiskImage:
   def set_avg_radius(self):
     self.avg_radius = average([b.radius for b in self.leaf_disk_blobs])
 
-  # Calculate the score for each leaf disk (for the single solution test)
-  def calculate_disk_score(self, blob):
-    rad = round(blob.radius * 1.1)
-    center = blob.center_coordinates
-    center_row = center['center_row']
-    center_col = center['center_col']
-
-    pixel_counts        = [0] * rad
-    rg_diff_sums        = [None] * rad
-    necrotic_value_sums = [0] * rad
-
-    # Sum up the red green differences for each pixel in the leaf disk
-    for coord in blob.coordinates:
-      row, col = coord['row'], coord['col']
-      d = round(point_distance(row, col, center_row, center_col))
-
-      # Skip pixels outside the radius
-      if not (0 <= d < rad):
-        continue
-
-      if rg_diff_sums[d] is None:
-        rg_diff_sums[d] = 0
-
-      r = self.pixels[row][col]['r']
-      g = self.pixels[row][col]['g']
-      pixel_counts[d]        += 1
-      rg_diff_sums[d]        += r - g
-      necrotic_value_sums[d] += r - g
-
-    real_sums = [s for s in rg_diff_sums if is_real_number(s)]
-
-    if not real_sums:
-      blob.avg_necrotic_value_sum = 0
-      return
-
-    # The minimum sum is the extent of necrotic damage
-    # Because green > red in live tissue and the center has fewer pixels, the sum increases towards the center
-    # This wouldn't work if the live tissue is heavily pigmented and has red > green
-    min_sum = min(real_sums)
-    necrotic_extent = rg_diff_sums.index(min_sum)
-
-    # Calculate the averages
-    avgs = []
-    for i, s in enumerate(necrotic_value_sums):
-      if s is not None and pixel_counts[i] is not None and pixel_counts[i] > 0:
-        avgs.append(s / pixel_counts[i])
-      else:
-        avgs.append(None)
-
-    min_avg = avgs[necrotic_extent]
-
-    avgs = [v - min_avg if v is not None else None for v in avgs]
-
-    blob.avg_necrotic_value_sum = sum_real(avgs[necrotic_extent:])
-
 
 # ============================================== #
 # Main
@@ -861,11 +434,6 @@ def main():
     image = LeafDiskImage(file_path)
     image.process_image()
 
-    image.get_highlighted_image().save('output/highlighted.png')
-    return
-
-
-
     base = os.path.splitext(os.path.basename(file_path))[0]
     dir_name = 'output'
 
@@ -873,15 +441,6 @@ def main():
     highlighted_path = os.path.join(dir_name, f"{base}_highlighted.png")
     image.get_highlighted_image().save(highlighted_path)
     print(f"  Saved highlighted image: {highlighted_path}")
-
-    # Disk data CSV
-    disk_csv_path = os.path.join(dir_name, f"{base}_avgNecroticValueSums.csv")
-    with open(disk_csv_path, 'w') as f:
-      f.write('\n'.join(image.disk_data_csv()))
-    print(f"  Saved disk data CSV:      {disk_csv_path}")
-
-    print(f"  Average radius: {image.avg_radius:.2f} px")
-    print(f"  Rows: {[len(row) for row in image.rows]}")
 
 if __name__ == '__main__':
   main()

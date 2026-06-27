@@ -119,6 +119,6 @@ metrics, corrected_imgs, errors = cc.run(
 prediction = cc.predict_image(IMG_PATH, show=False)
 OUT_DIR = 'corrected_images'
 os.makedirs(OUT_DIR, exist_ok=True)
-path = f"{OUT_DIR}/{img_name}.png"
+path = f"{OUT_DIR}/{img_name}_corrected.png"
 
 write_image(path, prediction['CC'])
