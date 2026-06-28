@@ -494,11 +494,10 @@ class PixelBlob:
     necrotic_count = 0
 
     for data in self.pixel_data:
-      # TODO: figure out what values are after thresholding
-      # if data['scores'][color_space][key] >= 0:
-      total += data['scores'][color_space][key]
-      necrotic_count += 1
-      # TODO: Add to histogram bucket
+      if data['scores'][color_space][key] > 0:
+        total += data['scores'][color_space][key]
+        necrotic_count += 1
+        # TODO: Add to histogram bucket
 
     return {
       'avg': total/num_pixels, # Average of necrotic pixel values across all pixels
@@ -555,8 +554,7 @@ class LeafDiskImage:
 
       for portion in [0.95]:
         blob.thresholds['live'][str(portion)] = blob.get_live_thresholds(portion)
-
-        # TODO: necrotic percentiles
+        # TODO: necrotic percentiles for histogram
 
     # Group the leaf disk blobs into rows
     self.set_leaf_disk_rows()
@@ -794,8 +792,33 @@ def main():
 
 
 
+    # Tests with proper time frame (1-4h)
+    # * 4 solutions over time, right side up
+    # * 4 solutions over time, upside down
+    # * CA vs OA vs nOA
+    # * First 90min
+    # * Higher concentrations v2
+    # * Many concentrations over time
+    # * Neutralized oxalic acid
+    # * Over time
+    # * Y-intercept investigation
 
-
+    # Tests with pH/concentration matrix
+    # * 4 solutions over time, right side up
+    # * 4 solutions over time, upside down
+    # * American vs Chinese neutralized
+    # * Big test different concentrations, pH
+    # * Different percent neutralized
+    # * Fine tune oxalate test, step 1
+    # * Fine tune oxalate test, step 2
+    # * Fine tune oxalate test, step 3
+    # * Fine tune oxalate test, step 4
+    # * Oxalate test best solution investigation
+    # * Oxalate test different temp
+    # * Oxalate test higher concentration
+    # * Oxalate test over time
+    # * Same pH
+    # * Y-intercept investigation
 
 
 
