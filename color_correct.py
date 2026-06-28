@@ -12,7 +12,7 @@ from ColorCorrectionPipeline.io import write_image
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. File paths
 # ─────────────────────────────────────────────────────────────────────────────
-IMG_PATH = sys.argv[1]
+IMG_PATH1 = sys.argv[1]
 
 # Output directory (only used if config.save=True)
 SAVE_PATH = os.path.join(os.getcwd(), "results")
@@ -21,9 +21,9 @@ print(SAVE_PATH)
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Load images and convert to RGB float64 in [0,1]
 # ─────────────────────────────────────────────────────────────────────────────
-img_bgr   = cv2.imread(IMG_PATH)
+img_bgr   = cv2.imread(IMG_PATH1)
 img_rgb   = to_float64(img_bgr[:, :, ::-1])  # convert to RGB (64bit floats, 0-1, RGB)
-img_name = os.path.splitext(os.path.basename(IMG_PATH))[0]
+img_name1 = os.path.splitext(os.path.basename(IMG_PATH1))[0]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Configure per‐stage parameters
@@ -111,14 +111,16 @@ config = Config(
 cc = ColorCorrection()
 metrics, corrected_imgs, errors = cc.run(
   Image=img_rgb,
-  name_=img_name,
+  name_=img_name1,
   config=config,
 )
 
-# Use calculated correction to convert and save the image
-prediction = cc.predict_image(IMG_PATH, show=False)
+# Color correct all the images using the correction calculated above
 OUT_DIR = 'corrected_images'
 os.makedirs(OUT_DIR, exist_ok=True)
-path = f"{OUT_DIR}/{img_name}_corrected.png"
 
-write_image(path, prediction['CC'])
+for img_path in sys.argv[1:]:
+  prediction = cc.predict_image(img_path, show=False)
+  img_name = os.path.splitext(os.path.basename(img_path))[0]
+  path = f"{OUT_DIR}/{img_name}_corrected.png"
+  write_image(path, prediction['CC'])

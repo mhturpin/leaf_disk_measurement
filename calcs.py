@@ -188,6 +188,10 @@ def rgb_array_to_pixels(rgb_array, num_rows, num_cols):
   # Convert into 2D array of pixels
   return [rgb_dicts[i * num_cols:(i + 1) * num_cols] for i in range(num_rows)]
 
+# Write the given file
+def write_file(path, contents):
+  with open(path, 'w') as f:
+    f.write(contents)
 
 # ============================================== #
 # PixelBlob class
@@ -204,6 +208,10 @@ class PixelBlob:
     self.pixel_data = []
     self.row_group = None
     self.live_avgs = {}
+    self.thresholds = {
+      'live': {},
+      'necrotic': {}
+    }
     self.scores = {
       'rgb': {},
       'lab': {}
@@ -273,6 +281,7 @@ class PixelBlob:
     is_large_enough = self.radius > 62
 
     return is_square and is_correct_pixel_count and is_large_enough
+    # return self.height > 100 and self.width > 100 and len(self.pixel_data) < self.height*self.width*0.8
 
   # Set the live averages for all the candidate injury scores
   def set_live_avgs(self):
@@ -356,25 +365,113 @@ class PixelBlob:
     lab_a_diff = data['lab']['a'] - self.live_avgs['lab']['a']
     lab_b_diff = data['lab']['b'] - self.live_avgs['lab']['b']
 
-    # TODO: Figure out threshold values for each and subtract them, including zeroing live pixels: max(s, 0)
-
-    data['scores'] = {
+    # 95% live values from American, Chinese, and Hybrid baseline scans
+    threshold_95 = {
       'rgb': {
-        'r': rgb_r_diff,
-        'g': rgb_g_diff,
-        'b': rgb_b_diff,
-        'r_minus_g': data['raw']['rgb']['r_minus_g'] - self.live_avgs['rgb']['r_minus_g'],
-        'r_minus_g_normalized': data['raw']['rgb']['r_minus_g_normalized'] - self.live_avgs['rgb']['r_minus_g_normalized'],
-        'r_div_g': data['raw']['rgb']['r_div_g'] - self.live_avgs['rgb']['r_div_g'],
-        'r_minus_avg_g_b': data['raw']['rgb']['r_minus_avg_g_b'] - self.live_avgs['rgb']['r_minus_avg_g_b'],
-        'delta_e': math.sqrt(rgb_r_diff**2 + rgb_g_diff**2 + rgb_b_diff**2)
+        'r': 33.7901988114855,
+        'g': 27.9599046724105,
+        'b': 3.78144550864443,
+        'r_minus_g': -215.916563182771,
+        'r_minus_g_normalized': -0.7936422256383700,
+        'r_div_g': 0.11699008225083700,
+        'r_minus_avg_g_b': 18.586190387624800,
+        'delta_e': 48.2618813635898,
       },
       'lab': {
-        'l': lab_l_diff,
-        'a': lab_a_diff,
-        'b': lab_b_diff,
-        'a_plus_b': data['raw']['lab']['a_plus_b'] - self.live_avgs['lab']['a_plus_b'],
-        'delta_e': math.sqrt(lab_l_diff**2 + lab_a_diff**2 + lab_b_diff**2)
+        'l': 11.1530914975556,
+        'a': 4.734533244056950,
+        'b': 11.8368293563434,
+        'a_plus_b': 11.9046959337337,
+        'delta_e': 18.848392378539,
+      }
+    }
+
+    # Min value is 0 for actual use, -infinity for testing
+    min_value = 0 #float('-inf')
+
+    # Scores are the calculation - the average for live pixels - the threshold value
+    # Threshold value is the 95% percentile of (calculation - the average for live pixels) when run on only live pixels
+    # Everything above the threshold is considered necotic
+    # TODO: may need to look at negating some of these since necrotic may be more negative than live
+    data['scores'] = {
+      'rgb': {
+        'r': max(rgb_r_diff - threshold_95['rgb']['r'], min_value),
+        'g': max(rgb_g_diff - threshold_95['rgb']['g'], min_value),
+        'b': max(rgb_b_diff - threshold_95['rgb']['b'], min_value),
+        'r_minus_g': max(data['raw']['rgb']['r_minus_g'] - self.live_avgs['rgb']['r_minus_g'] - threshold_95['rgb']['r_minus_g'], min_value),
+        'r_minus_g_normalized': max(data['raw']['rgb']['r_minus_g_normalized'] - self.live_avgs['rgb']['r_minus_g_normalized'] - threshold_95['rgb']['r_minus_g_normalized'], min_value),
+        'r_div_g': max(data['raw']['rgb']['r_div_g'] - self.live_avgs['rgb']['r_div_g'] - threshold_95['rgb']['r_div_g'], min_value),
+        'r_minus_avg_g_b': max(data['raw']['rgb']['r_minus_avg_g_b'] - self.live_avgs['rgb']['r_minus_avg_g_b'] - threshold_95['rgb']['r_minus_avg_g_b'], min_value),
+        'delta_e': max(math.sqrt(rgb_r_diff**2 + rgb_g_diff**2 + rgb_b_diff**2) - threshold_95['rgb']['delta_e'], min_value),
+      },
+      'lab': {
+        'l': max(lab_l_diff - threshold_95['lab']['l'], min_value),
+        'a': max(lab_a_diff - threshold_95['lab']['a'], min_value),
+        'b': max(lab_b_diff - threshold_95['lab']['b'], min_value),
+        'a_plus_b': max(data['raw']['lab']['a_plus_b'] - self.live_avgs['lab']['a_plus_b'] - threshold_95['lab']['a_plus_b'], min_value),
+        'delta_e': max(math.sqrt(lab_l_diff**2 + lab_a_diff**2 + lab_b_diff**2) - threshold_95['lab']['delta_e'], min_value),
+      }
+    }
+
+  # Find the values at a given percent for all live pixel scoring methods
+  def get_live_thresholds(self, portion):
+    c_row = self.center_coordinates['center_row']
+    c_col = self.center_coordinates['center_col']
+    rgb_keys = self.pixel_data[0]['scores']['rgb'].keys()
+    lab_keys = self.pixel_data[0]['scores']['lab'].keys()
+    # Lists containing all the live values of each pixel score type
+    lists = {
+      'rgb': {
+        'r': [],
+        'g': [],
+        'b': [],
+        'r_minus_g': [],
+        'r_minus_g_normalized': [],
+        'r_div_g': [],
+        'r_minus_avg_g_b': [],
+        'delta_e': []
+      },
+      'lab': {
+        'l': [],
+        'a': [],
+        'b': [],
+        'a_plus_b': [],
+        'delta_e': []
+      }
+    }
+
+    for data in self.pixel_data:
+      row = data['row']
+      col = data['col']
+
+      # If the pixel is inside the known live area, add it to the lists
+      if point_distance(row, col, c_row, c_col) < self.radius/2:
+        for key in rgb_keys:
+          lists['rgb'][key].append(data['scores']['rgb'][key])
+
+        for key in lab_keys:
+          lists['lab'][key].append(data['scores']['lab'][key])
+
+    # Use the length of one since they are all the same
+    position = int(len(lists['rgb']['r'])*portion)
+
+    return {
+      'rgb': {
+        'r': sorted(lists['rgb']['r'])[position],
+        'g': sorted(lists['rgb']['g'])[position],
+        'b': sorted(lists['rgb']['b'])[position],
+        'r_minus_g': sorted(lists['rgb']['r_minus_g'])[position],
+        'r_minus_g_normalized': sorted(lists['rgb']['r_minus_g_normalized'])[position],
+        'r_div_g': sorted(lists['rgb']['r_div_g'])[position],
+        'r_minus_avg_g_b': sorted(lists['rgb']['r_minus_avg_g_b'])[position],
+        'delta_e': sorted(lists['rgb']['delta_e'])[position],
+      },
+      'lab': {
+        'l': sorted(lists['lab']['l'])[position],
+        'a': sorted(lists['lab']['a'])[position],
+        'b': sorted(lists['lab']['b'])[position],
+        'a_plus_b': sorted(lists['lab']['a_plus_b'])[position],
+        'delta_e': sorted(lists['lab']['delta_e'])[position],
       }
     }
 
@@ -444,6 +541,9 @@ class LeafDiskImage:
 
     # Set the leaf disk blobs and group them into rows
     self.leaf_disk_blobs = [b for b in self.dark_blobs if b.is_leaf_disk()]
+    if len(self.leaf_disk_blobs) == 0:
+      raise 'No leaf disks found'
+
     self.set_leaf_disk_rows()
 
     # Calculate all the scores
@@ -453,23 +553,16 @@ class LeafDiskImage:
       blob.set_all_pixel_scores()
       blob.set_scores()
 
-    print(self.leaf_disk_blobs[0].scores)
+      for portion in [0.95]:
+        blob.thresholds['live'][str(portion)] = blob.get_live_thresholds(portion)
 
-    with open('output/scores.csv', 'w') as f:
-      f.write(self.scores_csv())
-
-
-
-
-
+        # TODO: necrotic percentiles
 
     # Group the leaf disk blobs into rows
     self.set_leaf_disk_rows()
 
     # Outline leaf disks for the highlighted image
     self.label_blob_borders()
-
-    self.set_avg_radius()
 
   # Group the leaf disks into sorted rows
   def set_leaf_disk_rows(self):
@@ -532,6 +625,39 @@ class LeafDiskImage:
 
     return '\n'.join(lines)
 
+  # Create a csv of thresholds for live pixels for pixel scoring methods
+  def pixel_score_thresholds_csv(self):
+    percentile_keys = list(self.leaf_disk_blobs[0].thresholds['live'].keys())
+    rgb_keys = list(self.leaf_disk_blobs[0].thresholds['live'][percentile_keys[0]]['rgb'].keys())
+    lab_keys = list(self.leaf_disk_blobs[0].thresholds['live'][percentile_keys[0]]['lab'].keys())
+
+    # Create the header row
+    headers = ['']
+
+    for key in rgb_keys:
+      headers += [f"rgb_{key}_{p_key}" for p_key in percentile_keys]
+
+    for key in lab_keys:
+      headers += [f"lab_{key}_{p_key}" for p_key in percentile_keys]
+
+    lines = [','.join(headers)]
+
+    # Populate rows
+    for row, disk_row in enumerate(self.rows):
+      for col, blob in enumerate(disk_row):
+        line = [f"Row {row} Col {col}"]
+
+        for key in rgb_keys:
+          line += [f"{blob.thresholds['live'][p_key]['rgb'][key]}" for p_key in percentile_keys]
+
+        for key in lab_keys:
+          line += [f"{blob.thresholds['live'][p_key]['lab'][key]}" for p_key in percentile_keys]
+
+        lines.append(','.join(line))
+      lines.append('')
+
+    return '\n'.join(lines)
+
   # Create a visualization
   def get_highlighted_image(self):
     height = len(self.pixel_tags)
@@ -540,14 +666,16 @@ class LeafDiskImage:
 
     for row in range(height):
       for col in range(width):
-        pixel = self.rgb_image[row][col]
-        r, g, b = pixel[0], pixel[1], pixel[2]
+        pixel_rgb = self.rgb_image[row][col]
+        tags = self.pixel_tags[row][col]
+        r, g, b = pixel_rgb[0], pixel_rgb[1], pixel_rgb[2]
 
         # Mark leaf disk boxes and row markers black
-        if pixel.get('is_leaf_disk_box') or pixel.get('is_row_marker'):
+        if tags.get('is_leaf_disk_box') or tags.get('is_row_marker'):
           r, g, b = 0, 0, 0
 
         png.putpixel((col, row), (int(r), int(g), int(b)))
+
     return png
 
   # Create a csv of the individual leaf disk data
@@ -627,29 +755,55 @@ class LeafDiskImage:
 # ============================================== #
 
 def main():
+  output_dir = 'output'
+
   if len(sys.argv) < 2:
     print("Usage: python calcs.py image1.png [image2.png ...]")
     sys.exit(1)
 
   for file_path in sys.argv[1:]:
+    base_file_name = os.path.basename(file_path)
+    file_name_no_ext = os.path.splitext(base_file_name)[0]
+
     if not os.path.exists(file_path):
       print(f"File not found: {file_path}", file=sys.stderr)
       continue
 
-    print(f"Processing {file_path}...")
+    print(f"Processing {base_file_name}...")
 
+    # Process and score the image
     image = LeafDiskImage(file_path)
     image.process_image()
-    return
+
+    # # Write pixel score threshold values csv
+    # pixel_score_thresholds_csv_path = f"{output_dir}/{file_name_no_ext}_pixel_score_thresholds.csv"
+    # write_file(pixel_score_thresholds_csv_path, image.pixel_score_thresholds_csv())
+    # print(f"  Saved pixel_score_thresholds csv: {pixel_score_thresholds_csv_path}")
+    # continue
+
+    # Write the scores csv
+    scores_csv_path = f"{output_dir}/{file_name_no_ext}_scores.csv"
+    write_file(scores_csv_path, image.scores_csv())
+    print(f"  Saved scores csv: {scores_csv_path}")
+
+
+    # TODO: Figure out best metric for initial use
+    # TODO: do scores csv row x col, avg for a single metric
+    # TODO: reprocess concentration x neutralization data (use calibration card in a different scan, then calibrate other images)
+    # TODO:
 
 
 
 
-    base = os.path.splitext(os.path.basename(file_path))[0]
-    dir_name = 'output'
+
+
+
+
+
+
 
     # Highlighted image
-    highlighted_path = os.path.join(dir_name, f"{base}_highlighted.png")
+    highlighted_path = os.path.join(output_dir, f"{file_name_no_ext}_highlighted.png")
     image.get_highlighted_image().save(highlighted_path)
     print(f"  Saved highlighted image: {highlighted_path}")
 
