@@ -425,6 +425,7 @@ class LeafDiskImage:
     self.file_path       = file_path
     self.rgb_image       = None
     self.lab_image       = None
+    self.pixel_tags      = []
     self.dark_blobs      = []
     self.leaf_disk_blobs = []
     self.rows            = []
@@ -443,6 +444,7 @@ class LeafDiskImage:
 
     # Set the leaf disk blobs and group them into rows
     self.leaf_disk_blobs = [b for b in self.dark_blobs if b.is_leaf_disk()]
+    self.set_leaf_disk_rows()
 
     # Calculate all the scores
     for blob in self.leaf_disk_blobs:
@@ -515,43 +517,35 @@ class LeafDiskImage:
     lines = [','.join(headers)]
 
     # Populate with the leaf disk scores
-    for blob in self.leaf_disk_blobs:
-      # TODO: do this by leaf disk rows, include a blank row between each row of leaf disks
-      line = ["Row 1 Col 1"]
+    for row, disk_row in enumerate(self.rows):
+      for col, blob in enumerate(disk_row):
+        line = [f"Row {row} Col {col}"]
 
-      for key in rgb_keys:
-        line += [f"{blob.scores['rgb'][key][d_key]}," for d_key in disk_score_keys]
+        for key in rgb_keys:
+          line += [f"{blob.scores['rgb'][key][d_key]}," for d_key in disk_score_keys]
 
-      for key in lab_keys:
-        line += [f"{blob.scores['lab'][key][d_key]}," for d_key in disk_score_keys]
+        for key in lab_keys:
+          line += [f"{blob.scores['lab'][key][d_key]}," for d_key in disk_score_keys]
 
-      lines.append(','.join(line))
+        lines.append(','.join(line))
+      lines.append('')
 
     return '\n'.join(lines)
 
   # Create a visualization
   def get_highlighted_image(self):
-    height = len(self.pixels)
-    width  = len(self.pixels[0])
+    height = len(self.pixel_tags)
+    width  = len(self.pixel_tags[0])
     png    = Image.new('RGB', (width, height))
 
     for row in range(height):
       for col in range(width):
-        pixel = self.pixels[row][col]
-        r, g, b = pixel['r'], pixel['g'], pixel['b']
+        pixel = self.rgb_image[row][col]
+        r, g, b = pixel[0], pixel[1], pixel[2]
 
-        # # Mark dark pixels green
-        # if pixel.get('is_dark'):
-        #   v = max(0, min(255, ((r - g + 50) * 255 / 100)))
-        #   r, g, b = v, v, v
-
-        # # Mark leaf disk boxes and row markers black
-        # if pixel.get('is_leaf_disk_box') or pixel.get('is_row_marker'):
-        #   r, g, b = 0, 0, 0
-
-        # # Mark best fit circle white
-        # if pixel.get('is_best_fit_circle'):
-        #   r, g, b = 255, 255, 255
+        # Mark leaf disk boxes and row markers black
+        if pixel.get('is_leaf_disk_box') or pixel.get('is_row_marker'):
+          r, g, b = 0, 0, 0
 
         png.putpixel((col, row), (int(r), int(g), int(b)))
     return png
@@ -575,19 +569,25 @@ class LeafDiskImage:
   def load_image(self, file_path):
     # Load image
     self.rgb_image = io.imread(file_path)
+
     # Convert RGB to Lab
     self.lab_image = color.rgb2lab(self.rgb_image)
+
+    # Initialize pixel tags array
+    height = len(self.rgb_image)
+    width = len(self.rgb_image[0])
+    self.pixel_tags = [[{} for row in range(width)] for col in range(height)]
 
   # Mark blob borders on the image
   def label_blob_borders(self):
     for blob in self.leaf_disk_blobs:
       for col in range(blob.left, blob.right + 1):
-        self.pixels[blob.top][col]['is_leaf_disk_box']    = True
-        self.pixels[blob.bottom][col]['is_leaf_disk_box'] = True
+        self.pixel_tags[blob.top][col]['is_leaf_disk_box']    = True
+        self.pixel_tags[blob.bottom][col]['is_leaf_disk_box'] = True
 
       for row in range(blob.top, blob.bottom + 1):
-        self.pixels[row][blob.left]['is_leaf_disk_box']  = True
-        self.pixels[row][blob.right]['is_leaf_disk_box'] = True
+        self.pixel_tags[row][blob.left]['is_leaf_disk_box']  = True
+        self.pixel_tags[row][blob.right]['is_leaf_disk_box'] = True
 
   # Add corner markers to each blob to indicate which row it got grouped into
   def label_row_groups(self):
@@ -615,8 +615,8 @@ class LeafDiskImage:
   def label_row_marker_pixels(self, start_row, start_col, size):
     for row in range(start_row, start_row + size + 1):
       for col in range(start_col, start_col + size + 1):
-        if 0 <= row < len(self.pixels) and 0 <= col < len(self.pixels[0]):
-          self.pixels[row][col]['is_row_marker'] = True
+        if 0 <= row < len(self.rgb_image) and 0 <= col < len(self.rgb_image[0]):
+          self.pixel_tags[row][col]['is_row_marker'] = True
 
   def set_avg_radius(self):
     self.avg_radius = average([b.radius for b in self.leaf_disk_blobs])
