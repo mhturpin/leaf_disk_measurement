@@ -315,8 +315,8 @@ class PixelBlob:
         'r': rgb_r_total/count,
         'g': rgb_g_total/count,
         'b': rgb_b_total/count,
-        'r_minus_g': (rgb_r_total + rgb_g_total)/count,
-        'r_minus_g_normalized': (rgb_r_total + rgb_g_total)/(rgb_r_total + rgb_g_total + rgb_b_total),
+        'r_minus_g': (rgb_r_total - rgb_g_total)/count,
+        'r_minus_g_normalized': (rgb_r_total - rgb_g_total)/(rgb_r_total + rgb_g_total + rgb_b_total),
         'r_div_g': rgb_r_total/rgb_g_total,
         'r_minus_avg_g_b': (rgb_r_total - (rgb_g_total + rgb_b_total)/2)/count
       },
@@ -366,23 +366,42 @@ class PixelBlob:
     lab_b_diff = data['lab']['b'] - self.live_avgs['lab']['b']
 
     # 95% live values from American, Chinese, and Hybrid baseline scans
+    # threshold_95 = {
+    #   'rgb': {
+    #     'r': 33.7901988114855,
+    #     'g': 27.9599046724105,
+    #     'b': 3.78144550864443,
+    #     'r_minus_g': -215.916563182771,
+    #     'r_minus_g_normalized': -0.7936422256383700,
+    #     'r_div_g': 0.11699008225083700,
+    #     'r_minus_avg_g_b': 18.586190387624800,
+    #     'delta_e': 48.2618813635898,
+    #   },
+    #   'lab': {
+    #     'l': 11.1530914975556,
+    #     'a': 4.734533244056950,
+    #     'b': 11.8368293563434,
+    #     'a_plus_b': 11.9046959337337,
+    #     'delta_e': 18.848392378539,
+    #   }
+    # }
     threshold_95 = {
       'rgb': {
-        'r': 33.7901988114855,
-        'g': 27.9599046724105,
-        'b': 3.78144550864443,
-        'r_minus_g': -215.916563182771,
-        'r_minus_g_normalized': -0.7936422256383700,
-        'r_div_g': 0.11699008225083700,
-        'r_minus_avg_g_b': 18.586190387624800,
-        'delta_e': 48.2618813635898,
+        'r': 0,
+        'g': 0,
+        'b': 0,
+        'r_minus_g': 0,
+        'r_minus_g_normalized': 0,
+        'r_div_g': 0,
+        'r_minus_avg_g_b': 0,
+        'delta_e': 0,
       },
       'lab': {
-        'l': 11.1530914975556,
-        'a': 4.734533244056950,
-        'b': 11.8368293563434,
-        'a_plus_b': 11.9046959337337,
-        'delta_e': 18.848392378539,
+        'l': 0,
+        'a': 0,
+        'b': 0,
+        'a_plus_b': 0,
+        'delta_e': 0,
       }
     }
 
@@ -600,10 +619,10 @@ class LeafDiskImage:
     headers = ['']
 
     for key in rgb_keys:
-      headers += [f"rgb_{key}_{d_key}," for d_key in disk_score_keys]
+      headers += [f"rgb_{key}_{d_key}" for d_key in disk_score_keys]
 
     for key in lab_keys:
-      headers += [f"lab_{key}_{d_key}," for d_key in disk_score_keys]
+      headers += [f"lab_{key}_{d_key}" for d_key in disk_score_keys]
 
     lines = [','.join(headers)]
 
@@ -613,10 +632,10 @@ class LeafDiskImage:
         line = [f"Row {row} Col {col}"]
 
         for key in rgb_keys:
-          line += [f"{blob.scores['rgb'][key][d_key]}," for d_key in disk_score_keys]
+          line += [f"{blob.scores['rgb'][key][d_key]}" for d_key in disk_score_keys]
 
         for key in lab_keys:
-          line += [f"{blob.scores['lab'][key][d_key]}," for d_key in disk_score_keys]
+          line += [f"{blob.scores['lab'][key][d_key]}" for d_key in disk_score_keys]
 
         lines.append(','.join(line))
       lines.append('')
