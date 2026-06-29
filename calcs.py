@@ -337,7 +337,7 @@ class PixelBlob:
 
     for data in self.pixel_data:
       # Set previously in set_live_avgs
-      if data['is_live']:
+      if data.get('is_live'):
         count += 1
         rgb_delta_e_total += data['raw']['rgb']['delta_e']
         lab_delta_e_total += data['raw']['lab']['delta_e']
@@ -378,44 +378,44 @@ class PixelBlob:
   # Set scores for all pixels in the blob
   def set_pixel_scores(self):
     # 95% live values from American, Chinese, and Hybrid baseline scans
-    # threshold_95 = {
-    #   'rgb': {
-    #     'r': 33.7901988114855,
-    #     'g': 27.9599046724105,
-    #     'b': 3.78144550864443,
-    #     'r_minus_g': 11.2747385835195,
-    #     'r_minus_g_normalized': 0.0505488668181413,
-    #     'r_div_g': 0.11699008225083700,
-    #     'r_minus_avg_g_b': 18.586190387624800,
-    #     'delta_e': 29.5497112714712,
-    #   },
-    #   'lab': {
-    #     'l': 11.1530914975556,
-    #     'a': 4.734533244056950,
-    #     'b': 11.8368293563434,
-    #     'a_plus_b': 11.9046959337337,
-    #     'delta_e': 11.3061328019191,
-    #   }
-    # }
     threshold_95 = {
       'rgb': {
-        'r': 0,
-        'g': 0,
-        'b': 0,
-        'r_minus_g': 0,
-        'r_minus_g_normalized': 0,
-        'r_div_g': 0,
-        'r_minus_avg_g_b': 0,
-        'delta_e': 0,
+        'r': 33.7901988114855,
+        'g': 27.9599046724105,
+        'b': 3.78144550864443,
+        'r_minus_g': 11.2747385835195,
+        'r_minus_g_normalized': 0.0505488668181413,
+        'r_div_g': 0.11699008225083700,
+        'r_minus_avg_g_b': 18.586190387624800,
+        'delta_e': 29.5497112714712,
       },
       'lab': {
-        'l': 0,
-        'a': 0,
-        'b': 0,
-        'a_plus_b': 0,
-        'delta_e': 0,
+        'l': 11.1530914975556,
+        'a': 4.734533244056950,
+        'b': 11.8368293563434,
+        'a_plus_b': 11.9046959337337,
+        'delta_e': 11.3061328019191,
       }
     }
+    # threshold_95 = {
+    #   'rgb': {
+    #     'r': 0,
+    #     'g': 0,
+    #     'b': 0,
+    #     'r_minus_g': 0,
+    #     'r_minus_g_normalized': 0,
+    #     'r_div_g': 0,
+    #     'r_minus_avg_g_b': 0,
+    #     'delta_e': 0,
+    #   },
+    #   'lab': {
+    #     'l': 0,
+    #     'a': 0,
+    #     'b': 0,
+    #     'a_plus_b': 0,
+    #     'delta_e': 0,
+    #   }
+    # }
     # Min value is 0 for actual use, -infinity for testing
     min_value = 0 #float('-inf')
 
@@ -462,7 +462,7 @@ class PixelBlob:
       col = data['col']
 
       # Only count data for live pixels, set previously in set_live_avgs
-      if data['is_live']:
+      if data.get('is_live'):
         for key in rgb_keys:
           lists['rgb'][key].append(data['scores']['rgb'][key])
 
@@ -787,13 +787,12 @@ def main():
     image = LeafDiskImage(file_path)
     image.process_image()
     processed_images.append(image)
-    continue
 
     # Write the scores csv
     scores_csv_path = f"{output_dir}/{file_name_no_ext}_scores.csv"
     write_file(scores_csv_path, image.scores_csv())
     print(f"  Saved scores csv: {scores_csv_path}")
-
+    continue
 
     # TODO: Figure out best metric for initial use
     # TODO: do scores csv row x col, avg for a single metric
