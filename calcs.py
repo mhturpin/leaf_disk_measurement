@@ -634,6 +634,7 @@ class LeafDiskImage:
     percentile_keys = list(self.leaf_disk_blobs[0].thresholds['live'].keys())
     rgb_keys = list(self.leaf_disk_blobs[0].thresholds['live'][percentile_keys[0]]['rgb'].keys())
     lab_keys = list(self.leaf_disk_blobs[0].thresholds['live'][percentile_keys[0]]['lab'].keys())
+    file_name_no_ext = os.path.splitext(os.path.basename(self.file_path))[0]
 
     # Create the header row
     headers = ['']
@@ -649,7 +650,7 @@ class LeafDiskImage:
     # Populate rows
     for row, disk_row in enumerate(self.rows):
       for col, blob in enumerate(disk_row):
-        line = [f"Row {row} Col {col}"]
+        line = [f"{file_name_no_ext} Row {row} Col {col}"]
 
         for key in rgb_keys:
           line += [f"{blob.thresholds['live'][p_key]['rgb'][key]}" for p_key in percentile_keys]
@@ -765,6 +766,8 @@ def main():
     print("Usage: python calcs.py image1.png [image2.png ...]")
     sys.exit(1)
 
+  processed_images = []
+
   for file_path in sys.argv[1:]:
     base_file_name = os.path.basename(file_path)
     file_name_no_ext = os.path.splitext(base_file_name)[0]
@@ -778,12 +781,8 @@ def main():
     # Process and score the image
     image = LeafDiskImage(file_path)
     image.process_image()
-
-    # # Write pixel score threshold values csv
-    # pixel_score_thresholds_csv_path = f"{output_dir}/{file_name_no_ext}_pixel_score_thresholds.csv"
-    # write_file(pixel_score_thresholds_csv_path, image.pixel_score_thresholds_csv())
-    # print(f"  Saved pixel_score_thresholds csv: {pixel_score_thresholds_csv_path}")
-    # continue
+    processed_images.append(image)
+    continue
 
     # Write the scores csv
     scores_csv_path = f"{output_dir}/{file_name_no_ext}_scores.csv"
@@ -796,6 +795,10 @@ def main():
     # TODO: reprocess concentration x neutralization data (use calibration card in a different scan, then calibrate other images)
     # TODO:
 
+    # Highlighted image
+    highlighted_path = os.path.join(output_dir, f"{file_name_no_ext}_highlighted.png")
+    image.get_highlighted_image().save(highlighted_path)
+    print(f"  Saved highlighted image: {highlighted_path}")
 
 
     # Tests with proper time frame (1-4h)
@@ -826,15 +829,15 @@ def main():
     # * Same pH
     # * Y-intercept investigation
 
+  # Write pixel score threshold values csv
+  content = ''
+  for image in processed_images:
+    content += image.pixel_score_thresholds_csv()
 
-
-
-
-
-    # Highlighted image
-    highlighted_path = os.path.join(output_dir, f"{file_name_no_ext}_highlighted.png")
-    image.get_highlighted_image().save(highlighted_path)
-    print(f"  Saved highlighted image: {highlighted_path}")
+  pixel_score_thresholds_csv_path = f"{output_dir}/pixel_score_thresholds.csv"
+  write_file(pixel_score_thresholds_csv_path, content)
+  print(f"Saved pixel_score_thresholds csv: {pixel_score_thresholds_csv_path}")
+  continue
 
 if __name__ == '__main__':
   main()
