@@ -744,11 +744,7 @@ class LeafDiskImage:
           line += [f"{blob.scores['lab'][key][d_key]}" for d_key in disk_score_keys]
 
         lines.append(','.join(line))
-      lines.append('')
-      lines.append('')
-      lines.append('')
-      lines.append('')
-      lines.append('')
+      lines.extend(['']*10)
 
     return '\n'.join(lines)
 
