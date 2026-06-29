@@ -304,7 +304,7 @@ class PixelBlob:
 
       # If the pixel is inside the known live area, add it to the totals
       # Adjust depending on the extent of necrosis
-      if data['rgb']['r'] + 5 < data['rgb']['g']: #point_distance(row, col, c_row, c_col) < self.radius/2:
+      if data['rgb']['r'] < data['rgb']['g']: #point_distance(row, col, c_row, c_col) < self.radius/2:
         data['is_live'] = True
         live_count += 1
 
@@ -719,9 +719,9 @@ class LeafDiskImage:
     rgb_keys = list(self.leaf_disk_blobs[0].scores['rgb'].keys())
     lab_keys = list(self.leaf_disk_blobs[0].scores['lab'].keys())
     disk_score_keys = list(self.leaf_disk_blobs[0].scores['rgb'][rgb_keys[0]].keys())
+    file_name_no_ext = os.path.splitext(os.path.basename(self.file_path))[0]
 
     # Create the header row with all score keys
-    # Add a comma after each one to create a blank column for doing spread sheet calculations
     headers = ['']
 
     for key in rgb_keys:
@@ -735,7 +735,7 @@ class LeafDiskImage:
     # Populate with the leaf disk scores
     for row, disk_row in enumerate(self.rows):
       for col, blob in enumerate(disk_row):
-        line = [f"Row {row} Col {col}"]
+        line = [f"{file_name_no_ext} R{row}C{col}"]
 
         for key in rgb_keys:
           line += [f"{blob.scores['rgb'][key][d_key]}" for d_key in disk_score_keys]
@@ -744,6 +744,10 @@ class LeafDiskImage:
           line += [f"{blob.scores['lab'][key][d_key]}" for d_key in disk_score_keys]
 
         lines.append(','.join(line))
+      lines.append('')
+      lines.append('')
+      lines.append('')
+      lines.append('')
       lines.append('')
 
     return '\n'.join(lines)
