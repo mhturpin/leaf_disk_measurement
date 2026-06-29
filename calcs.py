@@ -207,7 +207,7 @@ class PixelBlob:
     self.right  = float('-inf')
     self.pixel_data = []
     self.row_group = None
-    self.live_avgs = {}
+    self.aggregates = {}
     self.thresholds = {
       'live': {},
       'necrotic': {}
@@ -284,16 +284,19 @@ class PixelBlob:
     # return self.height > 100 and self.width > 100 and len(self.pixel_data) < self.height*self.width*0.8
 
   # Set the live averages for all the candidate injury scores
-  def set_live_avg_values(self):
+  def set_avg_values(self):
     c_row = self.center_coordinates['center_row']
     c_col = self.center_coordinates['center_col']
-    count = 0
-    rgb_r_total = 0
-    rgb_g_total = 0
-    rgb_b_total = 0
-    lab_l_total = 0
-    lab_a_total = 0
-    lab_b_total = 0
+    live_count = 0
+    live_totals = {
+      'rgb': { 'r': 0, 'g': 0, 'b': 0 },
+      'lab': { 'l': 0, 'a': 0, 'b': 0 }
+    }
+    necrotic_count = 0
+    necrotic_totals = {
+      'rgb': { 'r': 0, 'g': 0, 'b': 0 },
+      'lab': { 'l': 0, 'a': 0, 'b': 0 }
+    }
 
     for data in self.pixel_data:
       row = data['row']
@@ -301,49 +304,147 @@ class PixelBlob:
 
       # If the pixel is inside the known live area, add it to the totals
       # Adjust depending on the extent of necrosis
-      if point_distance(row, col, c_row, c_col) < self.radius/2:
+      if data['rgb']['r'] + 5 < data['rgb']['g']: #point_distance(row, col, c_row, c_col) < self.radius/2:
         data['is_live'] = True
-        count += 1
-        rgb_r_total += data['rgb']['r']
-        rgb_g_total += data['rgb']['g']
-        rgb_b_total += data['rgb']['b']
-        lab_l_total += data['lab']['l']
-        lab_a_total += data['lab']['a']
-        lab_b_total += data['lab']['b']
+        live_count += 1
 
-    self.live_avgs = {
-      'rgb': {
-        'r': rgb_r_total/count,
-        'g': rgb_g_total/count,
-        'b': rgb_b_total/count,
-        'r_minus_g': (rgb_r_total - rgb_g_total)/count,
-        'r_minus_g_normalized': (rgb_r_total - rgb_g_total)/(rgb_r_total + rgb_g_total + rgb_b_total),
-        'r_div_g': rgb_r_total/rgb_g_total,
-        'r_minus_avg_g_b': (rgb_r_total - (rgb_g_total + rgb_b_total)/2)/count
+        for color in ['r', 'g', 'b']:
+          live_totals['rgb'][color] += data['rgb'][color]
+        for color in ['l', 'a', 'b']:
+          live_totals['lab'][color] += data['lab'][color]
+      else:
+        data['is_live'] = False
+        necrotic_count += 1
+
+        for color in ['r', 'g', 'b']:
+          necrotic_totals['rgb'][color] += data['rgb'][color]
+        for color in ['l', 'a', 'b']:
+          necrotic_totals['lab'][color] += data['lab'][color]
+
+    self.aggregates = {
+      'live': {
+        'average': {
+          'rgb': {
+            'r': live_totals['rgb']['r']/live_count,
+            'g': live_totals['rgb']['g']/live_count,
+            'b': live_totals['rgb']['b']/live_count,
+            'r_minus_g': (live_totals['rgb']['r'] - live_totals['rgb']['g'])/live_count,
+            'r_minus_g_normalized': (live_totals['rgb']['r'] - live_totals['rgb']['g'])/(live_totals['rgb']['r'] + live_totals['rgb']['g'] + live_totals['rgb']['b']),
+            'r_div_g': live_totals['rgb']['r']/live_totals['rgb']['g'],
+            'r_minus_avg_g_b': (live_totals['rgb']['r'] - (live_totals['rgb']['g'] + live_totals['rgb']['b'])/2)/live_count
+          },
+          'lab': {
+            'l': live_totals['lab']['l']/live_count,
+            'a': live_totals['lab']['a']/live_count,
+            'b': live_totals['lab']['b']/live_count,
+            'a_plus_b': (live_totals['lab']['a'] + live_totals['lab']['b'])/live_count
+          }
+        }
       },
-      'lab': {
-        'l': lab_l_total/count,
-        'a': lab_a_total/count,
-        'b': lab_b_total/count,
-        'a_plus_b': (lab_a_total + lab_b_total)/count
+      'necrotic': {
+        'average': {
+          'rgb': {
+            'r': necrotic_totals['rgb']['r']/necrotic_count,
+            'g': necrotic_totals['rgb']['g']/necrotic_count,
+            'b': necrotic_totals['rgb']['b']/necrotic_count,
+            'r_minus_g': (necrotic_totals['rgb']['r'] - necrotic_totals['rgb']['g'])/necrotic_count,
+            'r_minus_g_normalized': (necrotic_totals['rgb']['r'] - necrotic_totals['rgb']['g'])/(necrotic_totals['rgb']['r'] + necrotic_totals['rgb']['g'] + necrotic_totals['rgb']['b']),
+            'r_div_g': necrotic_totals['rgb']['r']/necrotic_totals['rgb']['g'],
+            'r_minus_avg_g_b': (necrotic_totals['rgb']['r'] - (necrotic_totals['rgb']['g'] + necrotic_totals['rgb']['b'])/2)/necrotic_count
+          },
+          'lab': {
+            'l': necrotic_totals['lab']['l']/necrotic_count,
+            'a': necrotic_totals['lab']['a']/necrotic_count,
+            'b': necrotic_totals['lab']['b']/necrotic_count,
+            'a_plus_b': (necrotic_totals['lab']['a'] + necrotic_totals['lab']['b'])/necrotic_count
+          }
+        }
       }
     }
 
   # Set delta e (color difference) live avg
-  def set_live_avg_delta_e(self):
-    count = 0
-    rgb_delta_e_total = 0
-    lab_delta_e_total = 0
+  def set_avg_delta_e(self):
+    live_count = 0
+    live_rgb_delta_e_total = 0
+    live_lab_delta_e_total = 0
+    necrotic_count = 0
+    necrotic_rgb_delta_e_total = 0
+    necrotic_lab_delta_e_total = 0
 
     for data in self.pixel_data:
-      # Set previously in set_live_avgs
-      if data.get('is_live'):
-        count += 1
-        rgb_delta_e_total += data['raw']['rgb']['delta_e']
-        lab_delta_e_total += data['raw']['lab']['delta_e']
+      # Set previously in set_avg_values
+      if data['is_live']:
+        live_count += 1
+        live_rgb_delta_e_total += data['raw']['rgb']['delta_e']
+        live_lab_delta_e_total += data['raw']['lab']['delta_e']
+      else:
+        necrotic_count += 1
+        necrotic_rgb_delta_e_total += data['raw']['rgb']['delta_e']
+        necrotic_lab_delta_e_total += data['raw']['lab']['delta_e']
 
-    self.live_avgs['rgb']['delta_e'] = rgb_delta_e_total/count
-    self.live_avgs['lab']['delta_e'] = lab_delta_e_total/count
+    self.aggregates['live']['average']['rgb']['delta_e'] = live_rgb_delta_e_total/live_count
+    self.aggregates['live']['average']['lab']['delta_e'] = live_lab_delta_e_total/live_count
+    self.aggregates['necrotic']['average']['rgb']['delta_e'] = necrotic_rgb_delta_e_total/necrotic_count
+    self.aggregates['necrotic']['average']['lab']['delta_e'] = necrotic_lab_delta_e_total/necrotic_count
+
+  # Standard deviations for all pixel scoring methods
+  def set_standard_deviations(self):
+    self.aggregates['live']['standard_deviation'] = {
+      'rgb': {},
+      'lab': {}
+    }
+    self.aggregates['necrotic']['standard_deviation'] = {
+      'rgb': {},
+      'lab': {}
+    }
+
+    rgb_keys = self.aggregates['live']['average']['rgb'].keys()
+    lab_keys = self.aggregates['live']['average']['lab'].keys()
+
+    for key in rgb_keys:
+      self.aggregates['live']['standard_deviation']['rgb'][key] = self.standard_deviation(True, 'rgb', key)
+      self.aggregates['necrotic']['standard_deviation']['rgb'][key] = self.standard_deviation(False, 'rgb', key)
+
+    for key in lab_keys:
+      self.aggregates['live']['standard_deviation']['lab'][key] = self.standard_deviation(True, 'lab', key)
+      self.aggregates['necrotic']['standard_deviation']['lab'][key] = self.standard_deviation(False, 'lab', key)
+
+  # Calculate standard deviation
+  def standard_deviation(self, is_live, color_space, key):
+    all_data = list(filter(lambda d: d['is_live'] == is_live, self.pixel_data))
+    values = list(map(lambda d: d['raw'][color_space][key], all_data))
+    avg = self.aggregates['live']['average'][color_space][key]
+    deviation_sum = sum(list(map(lambda x: (x - avg) ** 2, values)))
+
+    return math.sqrt(deviation_sum/len(values))
+
+  # Set separation values between live and necrotic for each scoring method
+  def set_separations(self):
+    self.aggregates['separation'] = {
+      'rgb': {},
+      'lab': {}
+    }
+
+    rgb_keys = self.aggregates['live']['average']['rgb'].keys()
+    lab_keys = self.aggregates['live']['average']['lab'].keys()
+
+    for key in rgb_keys:
+      live_avg = self.aggregates['live']['average']['rgb'][key]
+      live_sd = self.aggregates['live']['standard_deviation']['rgb'][key]
+      necrotic_avg = self.aggregates['necrotic']['average']['rgb'][key]
+      necrotic_sd = self.aggregates['necrotic']['standard_deviation']['rgb'][key]
+      separation = (necrotic_avg - live_avg)/math.sqrt((live_sd**2 + necrotic_sd**2)/2)
+
+      self.aggregates['separation']['rgb'][key] = separation
+
+    for key in lab_keys:
+      live_avg = self.aggregates['live']['average']['lab'][key]
+      live_sd = self.aggregates['live']['standard_deviation']['lab'][key]
+      necrotic_avg = self.aggregates['necrotic']['average']['lab'][key]
+      necrotic_sd = self.aggregates['necrotic']['standard_deviation']['lab'][key]
+      separation = (necrotic_avg - live_avg)/math.sqrt((live_sd**2 + necrotic_sd**2)/2)
+
+      self.aggregates['separation']['lab'][key] = separation
 
   # Set raw candidate values for all pixels in the blob
   def set_raw_injury_values(self):
@@ -364,58 +465,58 @@ class PixelBlob:
           'r_minus_g_normalized': (rgb_r - rgb_g)/max(rgb_r + rgb_g + rgb_b, 1),
           'r_div_g': rgb_r/max(rgb_g, 1),
           'r_minus_avg_g_b': rgb_r - ((rgb_g + rgb_b)/2),
-          'delta_e': math.sqrt((rgb_r - self.live_avgs['rgb']['r'])**2 + (rgb_g - self.live_avgs['rgb']['g'])**2 + (rgb_b - self.live_avgs['rgb']['b'])**2),
+          'delta_e': math.sqrt((rgb_r - self.aggregates['live']['average']['rgb']['r'])**2 + (rgb_g - self.aggregates['live']['average']['rgb']['g'])**2 + (rgb_b - self.aggregates['live']['average']['rgb']['b'])**2),
         },
         'lab': {
           'l': lab_l,
           'a': lab_a,
           'b': lab_b,
           'a_plus_b': lab_a + lab_b,
-          'delta_e': math.sqrt((lab_l - self.live_avgs['lab']['l'])**2 + (lab_a - self.live_avgs['lab']['a'])**2 + (lab_b - self.live_avgs['lab']['b'])**2),
+          'delta_e': math.sqrt((lab_l - self.aggregates['live']['average']['lab']['l'])**2 + (lab_a - self.aggregates['live']['average']['lab']['a'])**2 + (lab_b - self.aggregates['live']['average']['lab']['b'])**2),
         }
       }
 
   # Set scores for all pixels in the blob
   def set_pixel_scores(self):
     # 95% live values from American, Chinese, and Hybrid baseline scans
-    threshold_95 = {
-      'rgb': {
-        'r': 33.7901988114855,
-        'g': 27.9599046724105,
-        'b': 3.78144550864443,
-        'r_minus_g': 11.2747385835195,
-        'r_minus_g_normalized': 0.0505488668181413,
-        'r_div_g': 0.11699008225083700,
-        'r_minus_avg_g_b': 18.586190387624800,
-        'delta_e': 29.5497112714712,
-      },
-      'lab': {
-        'l': 11.1530914975556,
-        'a': 4.734533244056950,
-        'b': 11.8368293563434,
-        'a_plus_b': 11.9046959337337,
-        'delta_e': 11.3061328019191,
-      }
-    }
     # threshold_95 = {
     #   'rgb': {
-    #     'r': 0,
-    #     'g': 0,
-    #     'b': 0,
-    #     'r_minus_g': 0,
-    #     'r_minus_g_normalized': 0,
-    #     'r_div_g': 0,
-    #     'r_minus_avg_g_b': 0,
-    #     'delta_e': 0,
+    #     'r': 33.7901988114855,
+    #     'g': 27.9599046724105,
+    #     'b': 3.78144550864443,
+    #     'r_minus_g': 11.2747385835195,
+    #     'r_minus_g_normalized': 0.0505488668181413,
+    #     'r_div_g': 0.11699008225083700,
+    #     'r_minus_avg_g_b': 18.586190387624800,
+    #     'delta_e': 29.5497112714712,
     #   },
     #   'lab': {
-    #     'l': 0,
-    #     'a': 0,
-    #     'b': 0,
-    #     'a_plus_b': 0,
-    #     'delta_e': 0,
+    #     'l': 11.1530914975556,
+    #     'a': 4.734533244056950,
+    #     'b': 11.8368293563434,
+    #     'a_plus_b': 11.9046959337337,
+    #     'delta_e': 11.3061328019191,
     #   }
     # }
+    threshold_95 = {
+      'rgb': {
+        'r': 0,
+        'g': 0,
+        'b': 0,
+        'r_minus_g': 0,
+        'r_minus_g_normalized': 0,
+        'r_div_g': 0,
+        'r_minus_avg_g_b': 0,
+        'delta_e': 0,
+      },
+      'lab': {
+        'l': 0,
+        'a': 0,
+        'b': 0,
+        'a_plus_b': 0,
+        'delta_e': 0,
+      }
+    }
     # Min value is 0 for actual use, -infinity for testing
     min_value = 0 #float('-inf')
 
@@ -430,7 +531,7 @@ class PixelBlob:
 
       for key in rgb_keys:
         # The raw value minus the live avg, since the damage is relative to what the live tissue started at
-        scaled_value = data['raw']['rgb'][key] - self.live_avgs['rgb'][key]
+        scaled_value = data['raw']['rgb'][key] - self.aggregates['live']['average']['rgb'][key]
         # Threshold and trim to the min allowed value
         data['scores']['rgb'][key] = max(scaled_value - threshold_95['rgb'][key], min_value)
         # if scaled_value > threshold_95['rgb'][key]:
@@ -440,7 +541,7 @@ class PixelBlob:
 
       for key in lab_keys:
         # The raw value minus the live avg
-        scaled_value = data['raw']['lab'][key] - self.live_avgs['lab'][key]
+        scaled_value = data['raw']['lab'][key] - self.aggregates['live']['average']['lab'][key]
         # Threshold and trim to the min allowed value
         data['scores']['lab'][key] = max(scaled_value - threshold_95['lab'][key], min_value)
         # if scaled_value > threshold_95['lab'][key]:
@@ -450,8 +551,6 @@ class PixelBlob:
 
   # Find the values at a given percent for all live pixel scoring methods
   def get_live_thresholds(self, portion):
-    c_row = self.center_coordinates['center_row']
-    c_col = self.center_coordinates['center_col']
     rgb_keys = self.pixel_data[0]['scores']['rgb'].keys()
     lab_keys = self.pixel_data[0]['scores']['lab'].keys()
     # Lists containing all the live values of each pixel score type
@@ -469,7 +568,7 @@ class PixelBlob:
       row = data['row']
       col = data['col']
 
-      # Only count data for live pixels, set previously in set_live_avgs
+      # Only count data for live pixels, set previously in set_avg_values
       if data.get('is_live'):
         for key in rgb_keys:
           lists['rgb'][key].append(data['scores']['rgb'][key])
@@ -512,7 +611,7 @@ class PixelBlob:
     necrotic_count = 0
 
     for data in self.pixel_data:
-      if data['scores'][color_space][key] > 0:
+      if data['is_live'] == False:
         total += data['scores'][color_space][key]
         necrotic_count += 1
         # TODO: Add to histogram bucket
@@ -565,11 +664,18 @@ class LeafDiskImage:
 
     # Calculate all the scores
     for blob in self.leaf_disk_blobs:
-      blob.set_live_avg_values() # everything except delta e since it needs live avg rgb and lab as reference
+      blob.set_avg_values() # everything except delta e since it needs live avg rgb and lab as reference
       blob.set_raw_injury_values()
-      blob.set_live_avg_delta_e()
+      blob.set_avg_delta_e()
+      blob.set_standard_deviations()
+      blob.set_separations()
       blob.set_pixel_scores()
       blob.set_scores()
+
+      for data in blob.pixel_data:
+        row = data['row']
+        col = data['col']
+        self.pixel_tags[row][col]['is_live'] = data['is_live']
 
       for portion in [0.95]:
         blob.thresholds['live'][str(portion)] = blob.get_live_thresholds(portion)
@@ -676,6 +782,46 @@ class LeafDiskImage:
 
     return '\n'.join(lines)
 
+  # Create a csv of aggregate values for pixel scoring methods
+  def pixel_score_aggregates_csv(self):
+    rgb_keys = list(self.leaf_disk_blobs[0].aggregates['live']['average']['rgb'].keys())
+    lab_keys = list(self.leaf_disk_blobs[0].aggregates['live']['average']['lab'].keys())
+    file_name_no_ext = os.path.splitext(os.path.basename(self.file_path))[0]
+
+    # Create the header row
+    headers = ['']
+
+    for key in rgb_keys:
+      headers += [f"rgb_{key}_live_avg,rgb_{key}_live_st_dev"]
+      headers += [f"rgb_{key}_necrotic_avg,rgb_{key}_necrotic_st_dev"]
+      headers += [f"rgb_{key}_separation"]
+
+    for key in lab_keys:
+      headers += [f"lab_{key}_live_avg,lab_{key}_live_st_dev"]
+      headers += [f"lab_{key}_necrotic_avg,lab_{key}_necrotic_st_dev"]
+      headers += [f"lab_{key}_separation"]
+
+    lines = [','.join(headers)]
+
+    # Populate rows
+    for row, disk_row in enumerate(self.rows):
+      for col, blob in enumerate(disk_row):
+        line = [f"{file_name_no_ext} R{row}C{col}"]
+
+        for key in rgb_keys:
+          line += [str(blob.aggregates['live']['average']['rgb'][key]), str(blob.aggregates['live']['standard_deviation']['rgb'][key])]
+          line += [str(blob.aggregates['necrotic']['average']['rgb'][key]), str(blob.aggregates['necrotic']['standard_deviation']['rgb'][key])]
+          line += [str(blob.aggregates['separation']['rgb'][key])]
+
+        for key in lab_keys:
+          line += [str(blob.aggregates['live']['average']['lab'][key]), str(blob.aggregates['live']['standard_deviation']['lab'][key])]
+          line += [str(blob.aggregates['necrotic']['average']['lab'][key]), str(blob.aggregates['necrotic']['standard_deviation']['lab'][key])]
+          line += [str(blob.aggregates['separation']['lab'][key])]
+
+        lines.append(','.join(line))
+
+    return '\n'.join(lines)
+
   # Create a visualization
   def get_highlighted_image(self):
     height = len(self.pixel_tags)
@@ -691,6 +837,14 @@ class LeafDiskImage:
         # Mark leaf disk boxes and row markers black
         if tags.get('is_leaf_disk_box') or tags.get('is_row_marker'):
           r, g, b = 0, 0, 0
+
+        if tags.get('is_live'):
+          r = int(r/2)
+          b = int(b/2)
+
+        if tags.get('is_live') == False:
+          g = int(g/2)
+          b = int(b/2)
 
         png.putpixel((col, row), (int(r), int(g), int(b)))
 
@@ -800,7 +954,6 @@ def main():
     scores_csv_path = f"{output_dir}/{file_name_no_ext}_scores.csv"
     write_file(scores_csv_path, image.scores_csv())
     print(f"  Saved scores csv: {scores_csv_path}")
-    continue
 
     # TODO: Figure out best metric for initial use
     # TODO: do scores csv row x col, avg for a single metric
@@ -849,6 +1002,15 @@ def main():
   # pixel_score_thresholds_csv_path = f"{output_dir}/pixel_score_thresholds.csv"
   # write_file(pixel_score_thresholds_csv_path, content)
   # print(f"Saved pixel_score_thresholds csv: {pixel_score_thresholds_csv_path}")
+
+  # Write pixel score aggregate values csv
+  content = ''
+  for image in processed_images:
+    content += image.pixel_score_aggregates_csv()
+
+  pixel_score_aggregates_csv_path = f"{output_dir}/pixel_score_aggregates.csv"
+  write_file(pixel_score_aggregates_csv_path, content)
+  print(f"Saved pixel_score_aggregates csv: {pixel_score_aggregates_csv_path}")
 
 if __name__ == '__main__':
   main()
