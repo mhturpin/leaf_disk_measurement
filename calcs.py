@@ -284,7 +284,7 @@ class PixelBlob:
     # return self.height > 100 and self.width > 100 and len(self.pixel_data) < self.height*self.width*0.8
 
   # Set the live averages for all the candidate injury scores
-  def set_live_avgs(self):
+  def set_live_avg_values(self):
     c_row = self.center_coordinates['center_row']
     c_col = self.center_coordinates['center_col']
     count = 0
@@ -339,8 +339,8 @@ class PixelBlob:
       # Set previously in set_live_avgs
       if data['is_live']:
         count += 1
-        rgb_delta_e_total += data['rgb']['delta_e']
-        lab_delta_e_total += data['lab']['delta_e']
+        rgb_delta_e_total += data['raw']['rgb']['delta_e']
+        lab_delta_e_total += data['raw']['lab']['delta_e']
 
     self.live_avgs['rgb']['delta_e'] = rgb_delta_e_total/count
     self.live_avgs['lab']['delta_e'] = lab_delta_e_total/count
@@ -376,25 +376,25 @@ class PixelBlob:
       }
 
   # Set scores for all pixels in the blob
-  def set_pixel_scores(self, data):
+  def set_pixel_scores(self):
     # 95% live values from American, Chinese, and Hybrid baseline scans
     # threshold_95 = {
     #   'rgb': {
     #     'r': 33.7901988114855,
     #     'g': 27.9599046724105,
     #     'b': 3.78144550864443,
-    #     'r_minus_g': -215.916563182771,
-    #     'r_minus_g_normalized': -0.7936422256383700,
+    #     'r_minus_g': 11.2747385835195,
+    #     'r_minus_g_normalized': 0.0505488668181413,
     #     'r_div_g': 0.11699008225083700,
     #     'r_minus_avg_g_b': 18.586190387624800,
-    #     'delta_e': 48.2618813635898,
+    #     'delta_e': 29.5497112714712,
     #   },
     #   'lab': {
     #     'l': 11.1530914975556,
     #     'a': 4.734533244056950,
     #     'b': 11.8368293563434,
     #     'a_plus_b': 11.9046959337337,
-    #     'delta_e': 18.848392378539,
+    #     'delta_e': 11.3061328019191,
     #   }
     # }
     threshold_95 = {
@@ -423,6 +423,11 @@ class PixelBlob:
     lab_keys = self.pixel_data[0]['raw']['lab'].keys()
 
     for data in self.pixel_data:
+      data['scores'] = {
+        'rgb': {},
+        'lab': {}
+      }
+
       for key in rgb_keys:
         # The raw value minus the live avg, since the damage is relative to what the live tissue started at
         scaled_value = data['raw']['rgb'][key] - self.live_avgs['rgb'][key]
@@ -552,7 +557,7 @@ class LeafDiskImage:
 
     # Calculate all the scores
     for blob in self.leaf_disk_blobs:
-      blob.set_live_avg_injury_values() # everything except delta e since it needs live avg rgb and lab as reference
+      blob.set_live_avg_values() # everything except delta e since it needs live avg rgb and lab as reference
       blob.set_raw_injury_values()
       blob.set_live_avg_delta_e()
       blob.set_pixel_scores()
@@ -837,7 +842,6 @@ def main():
   pixel_score_thresholds_csv_path = f"{output_dir}/pixel_score_thresholds.csv"
   write_file(pixel_score_thresholds_csv_path, content)
   print(f"Saved pixel_score_thresholds csv: {pixel_score_thresholds_csv_path}")
-  continue
 
 if __name__ == '__main__':
   main()
