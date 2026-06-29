@@ -302,6 +302,7 @@ class PixelBlob:
       # If the pixel is inside the known live area, add it to the totals
       # Adjust depending on the extent of necrosis
       if point_distance(row, col, c_row, c_col) < self.radius/2:
+        data['is_live'] = True
         count += 1
         rgb_r_total += data['rgb']['r']
         rgb_g_total += data['rgb']['g']
@@ -328,43 +329,54 @@ class PixelBlob:
       }
     }
 
-  # Set raw candidate values for all pixels in the blob
-  def set_all_raw_injury_values(self):
+  # Set delta e (color difference) live avg
+  def set_live_avg_delta_e(self):
+    count = 0
+    rgb_delta_e_total = 0
+    lab_delta_e_total = 0
+
     for data in self.pixel_data:
-      self.set_raw_injury_values(data)
+      # Set previously in set_live_avgs
+      if data['is_live']:
+        count += 1
+        rgb_delta_e_total += data['rgb']['delta_e']
+        lab_delta_e_total += data['lab']['delta_e']
 
-  # Set the raw candidate values for the given pixel
-  def set_raw_injury_values(self, data):
-    r = data['rgb']['r']
-    g = data['rgb']['g']
-    b = data['rgb']['b']
+    self.live_avgs['rgb']['delta_e'] = rgb_delta_e_total/count
+    self.live_avgs['lab']['delta_e'] = lab_delta_e_total/count
 
-    data['raw'] = {
-      'rgb': {
-        'r_minus_g': r - g,
-        'r_minus_g_normalized': (r - g)/max(r + g + b, 1),
-        'r_div_g': r/max(g, 1),
-        'r_minus_avg_g_b': r - ((g + b)/2)
-      },
-      'lab': {
-        'a_plus_b': data['lab']['a'] + data['lab']['b']
+  # Set raw candidate values for all pixels in the blob
+  def set_raw_injury_values(self):
+    for data in self.pixel_data:
+      rgb_r = data['rgb']['r']
+      rgb_g = data['rgb']['g']
+      rgb_b = data['rgb']['b']
+      lab_l = data['lab']['l']
+      lab_a = data['lab']['a']
+      lab_b = data['lab']['b']
+
+      data['raw'] = {
+        'rgb': {
+          'r': rgb_r,
+          'g': rgb_g,
+          'b': rgb_b,
+          'r_minus_g': rgb_r - rgb_g,
+          'r_minus_g_normalized': (rgb_r - rgb_g)/max(rgb_r + rgb_g + rgb_b, 1),
+          'r_div_g': rgb_r/max(rgb_g, 1),
+          'r_minus_avg_g_b': rgb_r - ((rgb_g + rgb_b)/2),
+          'delta_e': math.sqrt((rgb_r - self.live_avgs['rgb']['r'])**2 + (rgb_g - self.live_avgs['rgb']['g'])**2 + (rgb_b - self.live_avgs['rgb']['b'])**2),
+        },
+        'lab': {
+          'l': lab_l,
+          'a': lab_a,
+          'b': lab_b,
+          'a_plus_b': lab_a + lab_b,
+          'delta_e': math.sqrt((lab_l - self.live_avgs['lab']['l'])**2 + (lab_a - self.live_avgs['lab']['a'])**2 + (lab_b - self.live_avgs['lab']['b'])**2),
+        }
       }
-    }
 
   # Set scores for all pixels in the blob
-  def set_all_pixel_scores(self):
-    for data in self.pixel_data:
-      self.set_pixel_scores(data)
-
-  # Set scores for the given pixel
   def set_pixel_scores(self, data):
-    rgb_r_diff = data['rgb']['r'] - self.live_avgs['rgb']['r']
-    rgb_g_diff = data['rgb']['g'] - self.live_avgs['rgb']['g']
-    rgb_b_diff = data['rgb']['b'] - self.live_avgs['rgb']['b']
-    lab_l_diff = data['lab']['l'] - self.live_avgs['lab']['l']
-    lab_a_diff = data['lab']['a'] - self.live_avgs['lab']['a']
-    lab_b_diff = data['lab']['b'] - self.live_avgs['lab']['b']
-
     # 95% live values from American, Chinese, and Hybrid baseline scans
     # threshold_95 = {
     #   'rgb': {
@@ -404,33 +416,24 @@ class PixelBlob:
         'delta_e': 0,
       }
     }
-
     # Min value is 0 for actual use, -infinity for testing
     min_value = 0 #float('-inf')
 
-    # Scores are the calculation - the average for live pixels - the threshold value
-    # Threshold value is the 95% percentile of (calculation - the average for live pixels) when run on only live pixels
-    # Everything above the threshold is considered necotic
-    # TODO: may need to look at negating some of these since necrotic may be more negative than live
-    data['scores'] = {
-      'rgb': {
-        'r': max(rgb_r_diff - threshold_95['rgb']['r'], min_value),
-        'g': max(rgb_g_diff - threshold_95['rgb']['g'], min_value),
-        'b': max(rgb_b_diff - threshold_95['rgb']['b'], min_value),
-        'r_minus_g': max(data['raw']['rgb']['r_minus_g'] - self.live_avgs['rgb']['r_minus_g'] - threshold_95['rgb']['r_minus_g'], min_value),
-        'r_minus_g_normalized': max(data['raw']['rgb']['r_minus_g_normalized'] - self.live_avgs['rgb']['r_minus_g_normalized'] - threshold_95['rgb']['r_minus_g_normalized'], min_value),
-        'r_div_g': max(data['raw']['rgb']['r_div_g'] - self.live_avgs['rgb']['r_div_g'] - threshold_95['rgb']['r_div_g'], min_value),
-        'r_minus_avg_g_b': max(data['raw']['rgb']['r_minus_avg_g_b'] - self.live_avgs['rgb']['r_minus_avg_g_b'] - threshold_95['rgb']['r_minus_avg_g_b'], min_value),
-        'delta_e': max(math.sqrt(rgb_r_diff**2 + rgb_g_diff**2 + rgb_b_diff**2) - threshold_95['rgb']['delta_e'], min_value),
-      },
-      'lab': {
-        'l': max(lab_l_diff - threshold_95['lab']['l'], min_value),
-        'a': max(lab_a_diff - threshold_95['lab']['a'], min_value),
-        'b': max(lab_b_diff - threshold_95['lab']['b'], min_value),
-        'a_plus_b': max(data['raw']['lab']['a_plus_b'] - self.live_avgs['lab']['a_plus_b'] - threshold_95['lab']['a_plus_b'], min_value),
-        'delta_e': max(math.sqrt(lab_l_diff**2 + lab_a_diff**2 + lab_b_diff**2) - threshold_95['lab']['delta_e'], min_value),
-      }
-    }
+    rgb_keys = self.pixel_data[0]['raw']['rgb'].keys()
+    lab_keys = self.pixel_data[0]['raw']['lab'].keys()
+
+    for data in self.pixel_data:
+      for key in rgb_keys:
+        # The raw value minus the live avg, since the damage is relative to what the live tissue started at
+        scaled_value = data['raw']['rgb'][key] - self.live_avgs['rgb'][key]
+        # Threshold and trim to the min allowed value
+        data['scores']['rgb'][key] = max(scaled_value - threshold_95['rgb'][key], min_value)
+
+      for key in lab_keys:
+        # The raw value minus the live avg
+        scaled_value = data['raw']['lab'][key] - self.live_avgs['lab'][key]
+        # Threshold and trim to the min allowed value
+        data['scores']['lab'][key] = max(scaled_value - threshold_95['lab'][key], min_value)
 
   # Find the values at a given percent for all live pixel scoring methods
   def get_live_thresholds(self, portion):
@@ -440,31 +443,21 @@ class PixelBlob:
     lab_keys = self.pixel_data[0]['scores']['lab'].keys()
     # Lists containing all the live values of each pixel score type
     lists = {
-      'rgb': {
-        'r': [],
-        'g': [],
-        'b': [],
-        'r_minus_g': [],
-        'r_minus_g_normalized': [],
-        'r_div_g': [],
-        'r_minus_avg_g_b': [],
-        'delta_e': []
-      },
-      'lab': {
-        'l': [],
-        'a': [],
-        'b': [],
-        'a_plus_b': [],
-        'delta_e': []
-      }
+      'rgb': {},
+      'lab': {}
     }
+    for key in rgb_keys:
+      lists['rgb'][key] = []
+
+    for key in lab_keys:
+      lists['lab'][key] = []
 
     for data in self.pixel_data:
       row = data['row']
       col = data['col']
 
-      # If the pixel is inside the known live area, add it to the lists
-      if point_distance(row, col, c_row, c_col) < self.radius/2:
+      # Only count data for live pixels, set previously in set_live_avgs
+      if data['is_live']:
         for key in rgb_keys:
           lists['rgb'][key].append(data['scores']['rgb'][key])
 
@@ -474,25 +467,18 @@ class PixelBlob:
     # Use the length of one since they are all the same
     position = int(len(lists['rgb']['r'])*portion)
 
-    return {
-      'rgb': {
-        'r': sorted(lists['rgb']['r'])[position],
-        'g': sorted(lists['rgb']['g'])[position],
-        'b': sorted(lists['rgb']['b'])[position],
-        'r_minus_g': sorted(lists['rgb']['r_minus_g'])[position],
-        'r_minus_g_normalized': sorted(lists['rgb']['r_minus_g_normalized'])[position],
-        'r_div_g': sorted(lists['rgb']['r_div_g'])[position],
-        'r_minus_avg_g_b': sorted(lists['rgb']['r_minus_avg_g_b'])[position],
-        'delta_e': sorted(lists['rgb']['delta_e'])[position],
-      },
-      'lab': {
-        'l': sorted(lists['lab']['l'])[position],
-        'a': sorted(lists['lab']['a'])[position],
-        'b': sorted(lists['lab']['b'])[position],
-        'a_plus_b': sorted(lists['lab']['a_plus_b'])[position],
-        'delta_e': sorted(lists['lab']['delta_e'])[position],
-      }
+    result = {
+      'rgb': {},
+      'lab': {}
     }
+
+    for key in rgb_keys:
+      result['rgb'][key] = sorted(lists['rgb'][key])[position]
+
+    for key in lab_keys:
+      result['lab'][key] = sorted(lists['lab'][key])[position]
+
+    return result
 
   # Set all the candidate disk scores
   # Each candidate disk scoring method is run for each pixel scoring method
@@ -566,9 +552,10 @@ class LeafDiskImage:
 
     # Calculate all the scores
     for blob in self.leaf_disk_blobs:
-      blob.set_all_raw_injury_values()
-      blob.set_live_avgs()
-      blob.set_all_pixel_scores()
+      blob.set_live_avg_injury_values() # everything except delta e since it needs live avg rgb and lab as reference
+      blob.set_raw_injury_values()
+      blob.set_live_avg_delta_e()
+      blob.set_pixel_scores()
       blob.set_scores()
 
       for portion in [0.95]:
