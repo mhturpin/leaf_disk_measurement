@@ -433,12 +433,20 @@ class PixelBlob:
         scaled_value = data['raw']['rgb'][key] - self.live_avgs['rgb'][key]
         # Threshold and trim to the min allowed value
         data['scores']['rgb'][key] = max(scaled_value - threshold_95['rgb'][key], min_value)
+        # if scaled_value > threshold_95['rgb'][key]:
+        #   data['scores']['rgb'][key] = scaled_value
+        # else:
+        #   data['scores']['rgb'][key] = 0
 
       for key in lab_keys:
         # The raw value minus the live avg
         scaled_value = data['raw']['lab'][key] - self.live_avgs['lab'][key]
         # Threshold and trim to the min allowed value
         data['scores']['lab'][key] = max(scaled_value - threshold_95['lab'][key], min_value)
+        # if scaled_value > threshold_95['lab'][key]:
+        #   data['scores']['lab'][key] = scaled_value
+        # else:
+        #   data['scores']['lab'][key] = 0
 
   # Find the values at a given percent for all live pixel scoring methods
   def get_live_thresholds(self, portion):
@@ -833,14 +841,14 @@ def main():
     # * Same pH
     # * Y-intercept investigation
 
-  # Write pixel score threshold values csv
-  content = ''
-  for image in processed_images:
-    content += image.pixel_score_thresholds_csv()
+  # # Write pixel score threshold values csv
+  # content = ''
+  # for image in processed_images:
+  #   content += image.pixel_score_thresholds_csv()
 
-  pixel_score_thresholds_csv_path = f"{output_dir}/pixel_score_thresholds.csv"
-  write_file(pixel_score_thresholds_csv_path, content)
-  print(f"Saved pixel_score_thresholds csv: {pixel_score_thresholds_csv_path}")
+  # pixel_score_thresholds_csv_path = f"{output_dir}/pixel_score_thresholds.csv"
+  # write_file(pixel_score_thresholds_csv_path, content)
+  # print(f"Saved pixel_score_thresholds csv: {pixel_score_thresholds_csv_path}")
 
 if __name__ == '__main__':
   main()
