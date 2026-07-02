@@ -283,10 +283,46 @@ class PixelBlob:
     return is_square and is_correct_pixel_count and is_large_enough
     # return self.height > 100 and self.width > 100 and len(self.pixel_data) < self.height*self.width*0.8
 
-  # Set the live averages for all the candidate injury scores
-  def set_avg_values(self):
+  # Classify all pixels in the blob as live or necrotic
+  def classify_pixels(self):
+    # # Red vs green method
+    # for data in self.pixel_data:
+    #   if data['rgb']['r'] < data['rgb']['g']:
+    #     data['is_live'] = True
+
     c_row = self.center_coordinates['center_row']
     c_col = self.center_coordinates['center_col']
+
+    necrotic_totals = {'count': 0, 'r': 0, 'g': 0, 'b': 0}
+    # Everything beyond this is considered necrotic for calculating the average necrotic color
+    ref_radius = self.radius * 0.95
+
+    for data in self.pixel_data:
+      if point_distance(data['row'], data['col'], c_row, c_col) > ref_radius:
+        necrotic_totals['count'] += 1
+        necrotic_totals['r'] += data['rgb']['r']
+        necrotic_totals['g'] += data['rgb']['g']
+        necrotic_totals['b'] += data['rgb']['b']
+
+    avg_necrotic_color = {
+      'r': necrotic_totals['r']/necrotic_totals['count'],
+      'g': necrotic_totals['g']/necrotic_totals['count'],
+      'b': necrotic_totals['b']/necrotic_totals['count'],
+    }
+
+    for data in self.pixel_data:
+      r = data['rgb']['r']
+      g = data['rgb']['g']
+      b = data['rgb']['b']
+
+      # If the pixel color is close enough to the necrotic color, then it is marked necrotic
+      if math.sqrt((r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2) < 75:
+        data['is_live'] = False
+      else:
+        data['is_live'] = True
+
+  # Set the live averages for all the candidate injury scores
+  def set_avg_values(self):
     live_count = 0
     live_totals = {
       'rgb': { 'r': 0, 'g': 0, 'b': 0 },
@@ -299,13 +335,7 @@ class PixelBlob:
     }
 
     for data in self.pixel_data:
-      row = data['row']
-      col = data['col']
-
-      # If the pixel is inside the known live area, add it to the totals
-      # Adjust depending on the extent of necrosis
-      if data['rgb']['r'] < data['rgb']['g']: #point_distance(row, col, c_row, c_col) < self.radius/2:
-        data['is_live'] = True
+      if data['is_live']:
         live_count += 1
 
         for color in ['r', 'g', 'b']:
@@ -619,7 +649,7 @@ class PixelBlob:
     return {
       'avg': total/num_pixels, # Average of necrotic pixel values across all pixels
       'avg_of_necrotic': total/necrotic_count, # Average of necrotic pixel values across necrotic pixels
-      'percent_necrotic': necrotic_count/num_pixels, # Percent of pixels that are necrotic
+      # 'percent_necrotic': necrotic_count/num_pixels, # Percent of pixels that are necrotic
 
       # fixed_histogram # Necrotic pixels are counted into buckets, each with a fixed coefficient
       # best_fit_histogram # Necrotic pixels are counted into buckets, with best fit coefficients
@@ -664,6 +694,7 @@ class LeafDiskImage:
 
     # Calculate all the scores
     for blob in self.leaf_disk_blobs:
+      blob.classify_pixels()
       blob.set_avg_values() # everything except delta e since it needs live avg rgb and lab as reference
       blob.set_raw_injury_values()
       blob.set_avg_delta_e()
@@ -722,7 +753,7 @@ class LeafDiskImage:
     file_name_no_ext = os.path.splitext(os.path.basename(self.file_path))[0]
 
     # Create the header row with all score keys
-    headers = ['']
+    headers = [',percent_necrotic']
 
     for key in rgb_keys:
       headers += [f"rgb_{key}_{d_key}" for d_key in disk_score_keys]
@@ -736,6 +767,9 @@ class LeafDiskImage:
     for row, disk_row in enumerate(self.rows):
       for col, blob in enumerate(disk_row):
         line = [f"{file_name_no_ext} R{row}C{col}"]
+
+        num_necrotic = sum(1 for d in blob.pixel_data if not d['is_live'])
+        line.append(str(num_necrotic/len(blob.pixel_data)))
 
         for key in rgb_keys:
           line += [f"{blob.scores['rgb'][key][d_key]}" for d_key in disk_score_keys]
