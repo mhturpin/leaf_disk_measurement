@@ -508,48 +508,6 @@ class PixelBlob:
 
   # Set scores for all pixels in the blob
   def set_pixel_scores(self):
-    # 95% live values from American, Chinese, and Hybrid baseline scans
-    # threshold_95 = {
-    #   'rgb': {
-    #     'r': 33.7901988114855,
-    #     'g': 27.9599046724105,
-    #     'b': 3.78144550864443,
-    #     'r_minus_g': 11.2747385835195,
-    #     'r_minus_g_normalized': 0.0505488668181413,
-    #     'r_div_g': 0.11699008225083700,
-    #     'r_minus_avg_g_b': 18.586190387624800,
-    #     'delta_e': 29.5497112714712,
-    #   },
-    #   'lab': {
-    #     'l': 11.1530914975556,
-    #     'a': 4.734533244056950,
-    #     'b': 11.8368293563434,
-    #     'a_plus_b': 11.9046959337337,
-    #     'delta_e': 11.3061328019191,
-    #   }
-    # }
-    threshold_95 = {
-      'rgb': {
-        'r': 0,
-        'g': 0,
-        'b': 0,
-        'r_minus_g': 0,
-        'r_minus_g_normalized': 0,
-        'r_div_g': 0,
-        'r_minus_avg_g_b': 0,
-        'delta_e': 0,
-      },
-      'lab': {
-        'l': 0,
-        'a': 0,
-        'b': 0,
-        'a_plus_b': 0,
-        'delta_e': 0,
-      }
-    }
-    # Min value is 0 for actual use, -infinity for testing
-    min_value = 0 #float('-inf')
-
     rgb_keys = self.pixel_data[0]['raw']['rgb'].keys()
     lab_keys = self.pixel_data[0]['raw']['lab'].keys()
 
@@ -561,23 +519,11 @@ class PixelBlob:
 
       for key in rgb_keys:
         # The raw value minus the live avg, since the damage is relative to what the live tissue started at
-        scaled_value = data['raw']['rgb'][key] - self.aggregates['live']['average']['rgb'][key]
-        # Threshold and trim to the min allowed value
-        data['scores']['rgb'][key] = max(scaled_value - threshold_95['rgb'][key], min_value)
-        # if scaled_value > threshold_95['rgb'][key]:
-        #   data['scores']['rgb'][key] = scaled_value
-        # else:
-        #   data['scores']['rgb'][key] = 0
+        data['scores']['rgb'][key] = data['raw']['rgb'][key] - self.aggregates['live']['average']['rgb'][key]
 
       for key in lab_keys:
         # The raw value minus the live avg
-        scaled_value = data['raw']['lab'][key] - self.aggregates['live']['average']['lab'][key]
-        # Threshold and trim to the min allowed value
-        data['scores']['lab'][key] = max(scaled_value - threshold_95['lab'][key], min_value)
-        # if scaled_value > threshold_95['lab'][key]:
-        #   data['scores']['lab'][key] = scaled_value
-        # else:
-        #   data['scores']['lab'][key] = 0
+        data['scores']['lab'][key] = data['raw']['lab'][key] - self.aggregates['live']['average']['lab'][key]
 
   # Find the values at a given percent for all live pixel scoring methods
   def get_live_thresholds(self, portion):
