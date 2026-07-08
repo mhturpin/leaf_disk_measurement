@@ -345,6 +345,8 @@ class PixelBlob:
 class LeafDiskImage:
   def __init__(self, file_path):
     self.file_path       = file_path
+    self.base_file_name = os.path.basename(file_path)
+    self.file_name_no_ext = os.path.splitext(self.base_file_name)[0]
     self.rgb_image       = None
     self.lab_image       = None
     self.pixel_tags      = []
@@ -407,14 +409,14 @@ class LeafDiskImage:
     for blob in self.leaf_disk_blobs:
       blob.set_avg_color()
 
-    for i, blobs in enumerate(self.rows):
-      self.reference_colors[i] = list(map(lambda b: b.avg_color, blobs))
+    for blobs in self.rows:
+      self.reference_colors.append(list(map(lambda b: b.avg_color, blobs)))
 
   # Set color deviations for all blobs in the image
   def set_color_deviations(self, ref_colors):
     for row, blobs in enumerate(self.rows):
       for col, blob in enumerate(blobs):
-        blob.set_color_deviation(self.reference_colors[row][col])
+        blob.set_color_deviation(ref_colors[row][col])
 
   # Create a visualization
   def get_highlighted_image(self):
@@ -522,11 +524,10 @@ class LeafDiskImage:
 
 def load_file(file_path):
   base_file_name = os.path.basename(file_path)
-  file_name_no_ext = os.path.splitext(base_file_name)[0]
 
   if not os.path.exists(file_path):
     print(f"File not found: {file_path}", file=sys.stderr)
-    continue
+    return
 
   print(f"Processing {base_file_name}...")
 
@@ -536,35 +537,33 @@ def load_file(file_path):
 
   return image
 
-def main():
-  output_dir = 'output'
+def write_outputs(image):
+  # Write the scores csv
+  scores_csv_path = f"output/{image.file_name_no_ext}_scores.csv"
+  write_file(scores_csv_path, image.disk_data_csv())
+  print(f"  Saved scores csv: {scores_csv_path}")
 
+  # Highlighted image
+  highlighted_path = os.path.join('output', f"{image.file_name_no_ext}_highlighted.png")
+  image.get_highlighted_image().save(highlighted_path)
+  print(f"  Saved highlighted image: {highlighted_path}")
+
+def main():
   if len(sys.argv) < 2:
     print("Usage: python calcs.py image1.png [image2.png ...]")
     sys.exit(1)
-
-  processed_images = []
 
   # Calculate first image avgs
   image = load_file(sys.argv[1])
   image.set_reference_colors()
   ref_colors = image.reference_colors
   image.set_color_deviations(ref_colors)
+  write_outputs(image)
 
   for file_path in sys.argv[2:]:
     image = load_file(file_path)
     image.set_color_deviations(ref_colors)
-    processed_images.append(image)
-
-    # Write the scores csv
-    scores_csv_path = f"{output_dir}/{file_name_no_ext}_scores.csv"
-    write_file(scores_csv_path, image.disk_data_csv())
-    print(f"  Saved scores csv: {scores_csv_path}")
-
-    # Highlighted image
-    highlighted_path = os.path.join(output_dir, f"{file_name_no_ext}_highlighted.png")
-    image.get_highlighted_image().save(highlighted_path)
-    print(f"  Saved highlighted image: {highlighted_path}")
+    write_outputs(image)
 
 if __name__ == '__main__':
   main()
