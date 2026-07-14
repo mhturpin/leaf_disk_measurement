@@ -291,48 +291,22 @@ class PixelBlob:
       'b': totals['b']/count
     }
 
-  # Standard deviations for all pixel scoring methods
-  def set_standard_deviations(self):
-    self.aggregates['live']['standard_deviation'] = {
-      'rgb': {},
-      'lab': {}
-    }
-    self.aggregates['necrotic']['standard_deviation'] = {
-      'rgb': {},
-      'lab': {}
-    }
-
-    rgb_keys = self.aggregates['live']['average']['rgb'].keys()
-    lab_keys = self.aggregates['live']['average']['lab'].keys()
-
-    for key in rgb_keys:
-      self.aggregates['live']['standard_deviation']['rgb'][key] = self.standard_deviation(True, 'rgb', key)
-      self.aggregates['necrotic']['standard_deviation']['rgb'][key] = self.standard_deviation(False, 'rgb', key)
-
-    for key in lab_keys:
-      self.aggregates['live']['standard_deviation']['lab'][key] = self.standard_deviation(True, 'lab', key)
-      self.aggregates['necrotic']['standard_deviation']['lab'][key] = self.standard_deviation(False, 'lab', key)
-
-  # Calculate standard deviation
-  def standard_deviation(self, is_live, color_space, key):
-    all_data = list(filter(lambda d: d['is_live'] == is_live, self.pixel_data))
-    values = list(map(lambda d: d['raw'][color_space][key], all_data))
-    avg = self.aggregates['live']['average'][color_space][key]
-    deviation_sum = sum(list(map(lambda x: (x - avg) ** 2, values)))
-
-    return math.sqrt(deviation_sum/len(values))
-
   # Get the color deviation for the blob vs the reference color, based on standard deviation
   def set_color_deviation(self, ref_color):
-    deviation_sum = 0
-    count = len(self.pixel_data)
+    count = 0
+    distance_sum = 0
 
     for data in self.pixel_data:
-      for color in ['r', 'g', 'b']:
-        deviation_sum += (data['rgb'][color] - ref_color[color])**2
+      if not data['is_live']:
+        count += 1
+        squared_sum = 0
 
-    # Divide by 3 for 3 colors
-    self.color_deviation = math.sqrt((deviation_sum/3)/count)
+        for color in ['r', 'g', 'b']:
+          squared_sum += (data['rgb'][color] - ref_color[color])**2
+
+        distance_sum += math.sqrt(squared_sum)
+
+    self.color_deviation = distance_sum/count
 
 
 # ============================================== #
@@ -371,6 +345,9 @@ class LeafDiskImage:
     self.leaf_disk_blobs = [b for b in self.dark_blobs if b.is_leaf_disk()]
     if len(self.leaf_disk_blobs) == 0:
       raise 'No leaf disks found'
+
+    for blob in self.leaf_disk_blobs:
+      classify_pixels()
 
     self.set_leaf_disk_rows()
 
@@ -456,7 +433,7 @@ class LeafDiskImage:
     for i, row in enumerate(self.rows):
       values  = [b.color_deviation for b in row]
       avg_val = average(values)
-      line    = [str(i)] + [f"{v:.3f}" for v in values] + [f"{avg_val:.3f}"]
+      line    = [str(i)] + [f"{v:.7f}" for v in values] + [f"{avg_val:.7f}"]
       lines.append(','.join(line))
 
     return '\n'.join(lines)
