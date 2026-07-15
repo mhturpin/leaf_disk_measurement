@@ -214,9 +214,10 @@ class PixelBlob:
     self.pixel_data = []
     self.row_group = None
     self.num_buckets = 50
-    self.avg_colors = [{'r': 0, 'g': 0, 'b': 0} for i in range(self.num_buckets)]
+    self.r_g_diffs = [None for i in range(self.num_buckets)]
     self.color_distances = [0]*self.num_buckets
     self.live_avg_color = {}
+    self.live_avg_r_g_diff = None
 
   @property
   def height(self):
@@ -312,7 +313,7 @@ class PixelBlob:
       b = data['rgb']['b']
 
       # If the pixel color is close enough to the necrotic color, then it is marked necrotic
-      if math.sqrt((r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2) < 75:
+      if math.sqrt((r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2) < 50:
         data['is_live'] = False
       else:
         data['is_live'] = True
@@ -326,19 +327,20 @@ class PixelBlob:
     for data in self.pixel_data:
       if data['is_live']:
         count += 1
-        r_total += data['r']
-        g_total += data['g']
-        b_total += data['b']
+        r_total += data['rgb']['r']
+        g_total += data['rgb']['g']
+        b_total += data['rgb']['b']
 
     self.live_avg_color = {
       'r': r_total/count,
       'g': g_total/count,
       'b': b_total/count,
     }
+    self.live_avg_r_g_diff = self.live_avg_color['r'] - self.live_avg_color['g']
 
 
   # Set the average color of the whole disk
-  def set_avg_color_by_distance(self):
+  def set_avg_score_by_distance(self):
     c_row = self.center_coordinates['center_row']
     c_col = self.center_coordinates['center_col']
     bucket_pixels = max(self.height, self.width)/2/self.num_buckets
@@ -358,29 +360,23 @@ class PixelBlob:
         totals[bucket][color] += data['rgb'][color]
 
     for i, count in enumerate(counts):
-      for color in ['r', 'g', 'b']:
-        if count != 0:
-          self.avg_colors[i][color] = totals[i][color]/count
+      if count != 0:
+        color_avg_magnitude = color_magnitude(totals[i])
+        self.r_g_diffs[i] = (totals[i]['r'] - totals[i]['g'] - self.live_avg_r_g_diff)/color_avg_magnitude
+
+
+
+
+
+
 
   # Get the color deviation for the blob vs the reference color, based on standard deviation
-  def set_color_distance_list(self, live_colors):
-    assert len(self.avg_colors) == len(live_colors), 'Color lists must be the same length'
+  def set_r_g_diff_list(self, initial_diffs):
+    assert len(self.r_g_diffs) == len(initial_diffs), 'Color lists must be the same length'
 
-    for i, color in enumerate(self.avg_colors):
-      self.color_distances[i] = self.distance_score(color, live_colors[i])
+    for i, diff in enumerate(self.r_g_diffs):
+      self.color_distances[i] = diff - initial_diffs[i]
 
-  def distance_score(self, color, ref_color):
-    # # Normalize the color distance based on the avg size of the color values
-    # color_avg_magnitude = (color_magnitude(color) + color_magnitude(ref_color))/2
-    # return color_distance(color, ref_color)/color_avg_magnitude
-
-self.live_avg_color
-
-
-
-
-    # Excess R - G
-    return color['r'] - color['g'] - (ref_color['r'] - ref_color['g'])
 
 
 # ============================================== #
@@ -421,8 +417,14 @@ class LeafDiskImage:
       raise 'No leaf disks found'
 
     for blob in self.leaf_disk_blobs:
-      blob.set_avg_color_by_distance()
       blob.classify_pixels()
+      blob.set_live_avg_color()
+      blob.set_avg_score_by_distance()
+
+      for data in blob.pixel_data:
+        row = data['row']
+        col = data['col']
+        self.pixel_tags[row][col]['is_live'] = data['is_live']
 
     self.set_leaf_disk_rows()
 
@@ -457,10 +459,10 @@ class LeafDiskImage:
     self.label_row_groups()
 
   # Set color deviations for all blobs in the image
-  def set_color_distance_lists(self, avg_blob_colors):
+  def set_r_g_diff_lists(self, initial_diffs):
     for row, blobs in enumerate(self.rows):
       for col, blob in enumerate(blobs):
-        blob.set_color_distance_list(avg_blob_colors[row][col])
+        blob.set_r_g_diff_list(initial_diffs[row][col])
 
   # Create a visualization
   def get_highlighted_image(self):
@@ -563,7 +565,7 @@ class LeafDiskImage:
     colors = []
 
     for blobs in self.rows:
-      colors.append(list(map(lambda b: b.avg_colors, blobs)))
+      colors.append(list(map(lambda b: b.color_distances, blobs)))
 
     return colors
 
@@ -603,10 +605,11 @@ def main():
 
   # First image (initial scan)
   image1 = load_file(sys.argv[1])
+  write_outputs(image1)
 
   # Second image (after drying)
   image2 = load_file(sys.argv[2])
-  image2.set_color_distance_lists(image1.get_avg_blob_colors())
+  image2.set_r_g_diff_lists(image1.get_avg_blob_colors())
   write_outputs(image2)
 
 
