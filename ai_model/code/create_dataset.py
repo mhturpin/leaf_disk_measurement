@@ -357,15 +357,15 @@ class PixelBlob:
 
 class LeafDiskImage:
   def __init__(self, file_path):
-    self.file_path       = file_path
-    self.base_file_name = os.path.basename(file_path)
+    self.file_path        = file_path
+    self.base_file_name   = os.path.basename(file_path)
     self.file_name_no_ext = os.path.splitext(self.base_file_name)[0]
-    self.rgb_image       = None
-    self.lab_image       = None
-    self.pixel_tags      = []
-    self.dark_blobs      = []
-    self.leaf_disk_blobs = []
-    self.rows            = []
+    self.rgb_image        = None
+    self.lab_image        = None
+    self.pixel_tags       = []
+    self.dark_blobs       = []
+    self.leaf_disk_blobs  = []
+    self.rows             = []
     self.reference_colors = []
 
   # Do all the image processing from loading the file to determining necrotic areas
