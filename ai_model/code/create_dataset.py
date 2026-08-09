@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Usage: python calcs.py image1.png [image2.png ...]
 
+import csv
 import sys
 import os
 import math
@@ -214,10 +215,7 @@ class PixelBlob:
     self.pixel_data = []
     self.row_group = None
     self.num_buckets = 50
-    self.r_g_diffs = [None for i in range(self.num_buckets)]
-    self.color_distances = [0]*self.num_buckets
-    self.live_avg_color = {}
-    self.live_avg_r_g_diff = None
+    self.bucket_data = [{'r_avg': 0, 'g_avg': 0, 'b_avg': 0, 'necrotic_percent': 0} for i in range(self.num_buckets)]
 
   @property
   def height(self):
@@ -313,39 +311,18 @@ class PixelBlob:
       b = data['rgb']['b']
 
       # If the pixel color is close enough to the necrotic color, then it is marked necrotic
-      if math.sqrt((r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2) < 50:
+      if math.sqrt((r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2) < 75:
         data['is_live'] = False
       else:
         data['is_live'] = True
 
-  def set_live_avg_color(self):
-    count = 0
-    r_total = 0
-    g_total = 0
-    b_total = 0
-
-    for data in self.pixel_data:
-      if data['is_live']:
-        count += 1
-        r_total += data['rgb']['r']
-        g_total += data['rgb']['g']
-        b_total += data['rgb']['b']
-
-    self.live_avg_color = {
-      'r': r_total/count,
-      'g': g_total/count,
-      'b': b_total/count,
-    }
-    self.live_avg_r_g_diff = self.live_avg_color['r'] - self.live_avg_color['g']
-
-
-  # Set the average color of the whole disk
-  def set_avg_score_by_distance(self):
+  # Set the average color and necrotic percentage for each bucket
+  def set_bucket_data(self):
     c_row = self.center_coordinates['center_row']
     c_col = self.center_coordinates['center_col']
     bucket_pixels = max(self.height, self.width)/2/self.num_buckets
     counts = [0]*(self.num_buckets)
-    totals = [{'r': 0, 'g': 0, 'b': 0} for i in range(self.num_buckets)]
+    totals = [{'r': 0, 'g': 0, 'b': 0, 'necrotic': 0} for i in range(self.num_buckets)]
 
     for data in self.pixel_data:
       bucket = round(point_distance(data['row'], data['col'], c_row, c_col)/bucket_pixels)
@@ -359,18 +336,15 @@ class PixelBlob:
       for color in ['r', 'g', 'b']:
         totals[bucket][color] += data['rgb'][color]
 
+      if not data['is_live']:
+        totals[bucket]['necrotic'] += 1
+
     for i, count in enumerate(counts):
       if count != 0:
-        color_avg_magnitude = color_magnitude(totals[i])
-        self.r_g_diffs[i] = (totals[i]['r'] - totals[i]['g'] - self.live_avg_r_g_diff)/color_avg_magnitude
+        for color in ['r', 'g', 'b']:
+          self.bucket_data[i][f'{color}_avg'] = totals[i][color]/count
 
-  # Get the color deviation for the blob vs the reference color, based on standard deviation
-  def set_r_g_diff_list(self, initial_diffs):
-    assert len(self.r_g_diffs) == len(initial_diffs), 'Color lists must be the same length'
-
-    for i, diff in enumerate(self.r_g_diffs):
-      self.color_distances[i] = diff #- initial_diffs[i]
-
+        self.bucket_data[i]['necrotic_percent'] = totals[i]['necrotic']*100/count
 
 
 # ============================================== #
@@ -412,8 +386,7 @@ class LeafDiskImage:
 
     for blob in self.leaf_disk_blobs:
       blob.classify_pixels()
-      blob.set_live_avg_color()
-      blob.set_avg_score_by_distance()
+      blob.set_bucket_data()
 
       for data in blob.pixel_data:
         row = data['row']
@@ -452,12 +425,6 @@ class LeafDiskImage:
 
     self.label_row_groups()
 
-  # Set color deviations for all blobs in the image
-  def set_r_g_diff_lists(self, initial_diffs):
-    for row, blobs in enumerate(self.rows):
-      for col, blob in enumerate(blobs):
-        blob.set_r_g_diff_list(initial_diffs[row][col])
-
   # Create a visualization
   def get_highlighted_image(self):
     height = len(self.pixel_tags)
@@ -486,20 +453,23 @@ class LeafDiskImage:
 
     return png
 
-  # Create a csv of the individual leaf disk data
-  def disk_data_csv(self):
-    headers = [''] + [str(i) for i in range(self.leaf_disk_blobs[0].num_buckets)]
-    lines = [','.join(headers)]
+  # Create a csv of the leaf disk data
+  def bucket_data_rows(self, image_row_mapping):
+    lines = []
 
     for row, blobs in enumerate(self.rows):
-      for col, blob in enumerate(blobs):
-        values = [f'R{row}C{col}'] + list(map(str, blob.color_distances))
+      for blob in blobs:
+        # Start with the tree name
+        tree_data = image_row_mapping[self.base_file_name][row]
+        values = [tree_data['tree'], tree_data['score']]
+
+        for bucket in blob.bucket_data:
+          for key in ['r_avg', 'g_avg', 'b_avg', 'necrotic_percent']:
+            values.append(str(bucket[key]))
+
         lines.append(','.join(values))
 
-      # Add blank csv row between each row
-      lines += ['']
-
-    return '\n'.join(lines)
+    return lines
 
   # Load the pixels from the image
   def load_image(self, file_path):
@@ -554,15 +524,6 @@ class LeafDiskImage:
         if 0 <= row < len(self.rgb_image) and 0 <= col < len(self.rgb_image[0]):
           self.pixel_tags[row][col]['is_row_marker'] = True
 
-  # Set the 2d array of reference colors, one for each blob
-  def get_avg_blob_colors(self):
-    colors = []
-
-    for blobs in self.rows:
-      colors.append(list(map(lambda b: b.color_distances, blobs)))
-
-    return colors
-
 
 # ============================================== #
 # Main
@@ -583,29 +544,76 @@ def load_file(file_path):
 
   return image
 
-def write_outputs(image):
-  # Write the scores csv
-  color_dist_csv_path = f"output/{image.file_name_no_ext}_color_dist.csv"
-  write_file(color_dist_csv_path, image.disk_data_csv())
-  print(f"  Saved color_dist csv: {color_dist_csv_path}")
+# Create the tree/score mapping by image row
+def create_image_row_mapping(mapping_csv):
+  # CSV contains rows of image_name, row, tree, score
+  image_row_mapping = {}
 
+
+
+
+
+
+
+
+
+  with open(mapping_csv, newline='') as csvfile:
+    reader = csv.DictReader(csvfile)
+
+    for row in reader:
+      if not image_row_mapping.get(row['image_name']):
+        image_row_mapping[row['image_name']] = {}
+
+      image_row_mapping[row['image_name']][int(row['row'])] = {'tree': row['tree'], 'score': row['score']}
+
+  return image_row_mapping
+
+
+
+
+
+
+
+
+
+
+
+# Create dataset csv
+def dataset_csv(images, image_row_mapping):
+  headers = ['tree', 'score']
+
+  for i in range(50):
+    for key in ['r_avg', 'g_avg', 'b_avg', 'necrotic_percent']:
+      headers.append(f'{key}_{str(i)}')
+
+  lines = [','.join(headers)]
+
+  for image in images:
+    lines.extend(image.bucket_data_rows(image_row_mapping))
+
+  return '\n'.join(lines)
+
+def write_outputs(image):
   # Highlighted image
-  highlighted_path = os.path.join('output', f"{image.file_name_no_ext}_highlighted.png")
+  highlighted_path = os.path.join('highlighted_images', f"{image.file_name_no_ext}_highlighted.png")
   image.get_highlighted_image().save(highlighted_path)
   print(f"  Saved highlighted image: {highlighted_path}")
 
 def main():
-  assert len(sys.argv) == 3, "Usage: python calcs.py image1.png image2.png"
+  assert len(sys.argv) > 2, "Usage: python create_dataset.py image_row_mapping.csv image1.png image2.png ..."
 
-  # First image (initial scan)
-  image1 = load_file(sys.argv[1])
-  image1.set_r_g_diff_lists(image1.get_avg_blob_colors())
-  write_outputs(image1)
+  image_row_mapping = create_image_row_mapping(sys.argv[1])
 
-  # Second image (after drying)
-  image2 = load_file(sys.argv[2])
-  image2.set_r_g_diff_lists(image1.get_avg_blob_colors())
-  write_outputs(image2)
+  images = []
+
+  for img_path in sys.argv[2:]:
+    image = load_file(img_path)
+    write_outputs(image)
+    images.append(image)
+
+  dataset_csv_path = f"data/leaf_disk_dataset.csv"
+  write_file(dataset_csv_path, dataset_csv(images, image_row_mapping))
+  print(f"Saved dataset csv: {dataset_csv_path}")
 
 
 if __name__ == '__main__':

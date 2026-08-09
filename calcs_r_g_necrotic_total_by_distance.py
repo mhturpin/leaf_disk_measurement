@@ -214,8 +214,7 @@ class PixelBlob:
     self.pixel_data = []
     self.row_group = None
     self.num_buckets = 50
-    self.r_g_diffs = [None for i in range(self.num_buckets)]
-    self.color_distances = [0]*self.num_buckets
+    self.r_g_totals = [0]*self.num_buckets
     self.live_avg_color = {}
     self.live_avg_r_g_diff = None
 
@@ -313,11 +312,12 @@ class PixelBlob:
       b = data['rgb']['b']
 
       # If the pixel color is close enough to the necrotic color, then it is marked necrotic
-      if math.sqrt((r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2) < 50:
+      if math.sqrt((r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2 + (r - avg_necrotic_color['r'])**2) < 75:
         data['is_live'] = False
       else:
         data['is_live'] = True
 
+  # Set the average color of the live pixels
   def set_live_avg_color(self):
     count = 0
     r_total = 0
@@ -338,39 +338,21 @@ class PixelBlob:
     }
     self.live_avg_r_g_diff = self.live_avg_color['r'] - self.live_avg_color['g']
 
-
-  # Set the average color of the whole disk
-  def set_avg_score_by_distance(self):
+  # Total r - g diff over avg for each bucket, only necrotic
+  def set_r_g_diff_totals(self):
     c_row = self.center_coordinates['center_row']
     c_col = self.center_coordinates['center_col']
     bucket_pixels = max(self.height, self.width)/2/self.num_buckets
-    counts = [0]*(self.num_buckets)
-    totals = [{'r': 0, 'g': 0, 'b': 0} for i in range(self.num_buckets)]
 
     for data in self.pixel_data:
       bucket = round(point_distance(data['row'], data['col'], c_row, c_col)/bucket_pixels)
 
       # Discard pixels that fall outside the expected range. The edges are messy anyway, so not needed
-      if bucket >= self.num_buckets:
+      # And only count necrotic
+      if bucket >= self.num_buckets or data['is_live']:
         continue
 
-      counts[bucket] += 1
-
-      for color in ['r', 'g', 'b']:
-        totals[bucket][color] += data['rgb'][color]
-
-    for i, count in enumerate(counts):
-      if count != 0:
-        color_avg_magnitude = color_magnitude(totals[i])
-        self.r_g_diffs[i] = (totals[i]['r'] - totals[i]['g'] - self.live_avg_r_g_diff)/color_avg_magnitude
-
-  # Get the color deviation for the blob vs the reference color, based on standard deviation
-  def set_r_g_diff_list(self, initial_diffs):
-    assert len(self.r_g_diffs) == len(initial_diffs), 'Color lists must be the same length'
-
-    for i, diff in enumerate(self.r_g_diffs):
-      self.color_distances[i] = diff #- initial_diffs[i]
-
+      self.r_g_totals[bucket] += data['rgb']['r'] - data['rgb']['g'] - self.live_avg_r_g_diff
 
 
 # ============================================== #
@@ -413,7 +395,7 @@ class LeafDiskImage:
     for blob in self.leaf_disk_blobs:
       blob.classify_pixels()
       blob.set_live_avg_color()
-      blob.set_avg_score_by_distance()
+      blob.set_r_g_diff_totals()
 
       for data in blob.pixel_data:
         row = data['row']
@@ -452,12 +434,6 @@ class LeafDiskImage:
 
     self.label_row_groups()
 
-  # Set color deviations for all blobs in the image
-  def set_r_g_diff_lists(self, initial_diffs):
-    for row, blobs in enumerate(self.rows):
-      for col, blob in enumerate(blobs):
-        blob.set_r_g_diff_list(initial_diffs[row][col])
-
   # Create a visualization
   def get_highlighted_image(self):
     height = len(self.pixel_tags)
@@ -493,7 +469,7 @@ class LeafDiskImage:
 
     for row, blobs in enumerate(self.rows):
       for col, blob in enumerate(blobs):
-        values = [f'R{row}C{col}'] + list(map(str, blob.color_distances))
+        values = [f'R{row}C{col}'] + list(map(str, blob.r_g_totals))
         lines.append(','.join(values))
 
       # Add blank csv row between each row
@@ -559,7 +535,7 @@ class LeafDiskImage:
     colors = []
 
     for blobs in self.rows:
-      colors.append(list(map(lambda b: b.color_distances, blobs)))
+      colors.append(list(map(lambda b: b.r_g_totals, blobs)))
 
     return colors
 
@@ -595,17 +571,10 @@ def write_outputs(image):
   print(f"  Saved highlighted image: {highlighted_path}")
 
 def main():
-  assert len(sys.argv) == 3, "Usage: python calcs.py image1.png image2.png"
+  assert len(sys.argv) == 2, "Usage: python calcs.py image.png"
 
-  # First image (initial scan)
-  image1 = load_file(sys.argv[1])
-  image1.set_r_g_diff_lists(image1.get_avg_blob_colors())
-  write_outputs(image1)
-
-  # Second image (after drying)
-  image2 = load_file(sys.argv[2])
-  image2.set_r_g_diff_lists(image1.get_avg_blob_colors())
-  write_outputs(image2)
+  image = load_file(sys.argv[1])
+  write_outputs(image)
 
 
 if __name__ == '__main__':

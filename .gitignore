@@ -2,3 +2,9 @@ test_images
 corrected_images
 todo.txt
 output
+ai_model/data
+ai_model/highlighted_images
+ai_model/ideas
+ai_model/images
+ai_model/models
+ai_model/plan.txt
