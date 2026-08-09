@@ -6,6 +6,7 @@ import sys
 import os
 import math
 import numpy as np
+from datetime import datetime
 from PIL import Image
 from skimage import io, color
 from functools import reduce
@@ -454,22 +455,27 @@ class LeafDiskImage:
     return png
 
   # Create a csv of the leaf disk data
-  def bucket_data_rows(self, image_row_mapping):
-    lines = []
+  def bucket_data_rows(self, image_row_mapping, tree_mapping):
+    lines = {
+      'train': [],
+      'validate': [],
+      'test': []
+    }
 
     for row, blobs in enumerate(self.rows):
       for blob in blobs:
         # Start with the tree name
-        tree_data = image_row_mapping[self.base_file_name][row]
-        values = [tree_data['tree'], tree_data['score']]
+        tree = image_row_mapping[self.base_file_name][row]
+        values = [tree, tree_mapping[tree]['score']]
 
         for bucket in blob.bucket_data:
           for key in ['r_avg', 'g_avg', 'b_avg', 'necrotic_percent']:
             values.append(str(bucket[key]))
 
-        lines.append(','.join(values))
+        dataset = tree_mapping[tree]['dataset']
+        lines[dataset].append(','.join(values))
 
-    return lines
+    return lines['train'], lines['validate'], lines['test']
 
   # Load the pixels from the image
   def load_image(self, file_path):
@@ -545,75 +551,111 @@ def load_file(file_path):
   return image
 
 # Create the tree/score mapping by image row
-def create_image_row_mapping(mapping_csv):
-  # CSV contains rows of image_name, row, tree, score
+def create_image_row_mapping(image_rows, tree_scores):
+  # Map image_name[row] -> tree
   image_row_mapping = {}
 
-
-
-
-
-
-
-
-
-  with open(mapping_csv, newline='') as csvfile:
+  with open(image_rows, newline='') as csvfile:
     reader = csv.DictReader(csvfile)
 
     for row in reader:
       if not image_row_mapping.get(row['image_name']):
         image_row_mapping[row['image_name']] = {}
 
-      image_row_mapping[row['image_name']][int(row['row'])] = {'tree': row['tree'], 'score': row['score']}
+      image_row_mapping[row['image_name']][int(row['row'])] = row['tree']
 
-  return image_row_mapping
+  # Map tree -> score
+  tree_mapping = {}
 
+  with open(tree_scores, newline='') as csvfile:
+    reader = csv.DictReader(csvfile)
 
+    for row in reader:
+      tree_mapping[row['tree']] = {'score': row['score']}
 
+  # Rank trees to select train, validate, and test data sets
+  ranked_trees = list(tree_mapping.items())
+  ranked_trees.sort(key=lambda t : t[1]['score'])
 
+  # Split trees into train, validate, and test data sets
+  validate_portion = 0.15
+  test_portion = 0.15
+  validate_step = 1 / validate_portion
+  test_step = (1 - validate_portion) / test_portion
 
+  # Validate
+  # Reverse so that removing items from the list doesn't impact the indices
+  i = len(ranked_trees) - 1
 
+  while i > 0:
+    index = round(i)
+    tree_mapping[ranked_trees[index][0]]['dataset'] = 'validate'
+    ranked_trees.pop(index)
+    i -= validate_step
 
+  # Test
+  i = len(ranked_trees) - 1
 
+  while i > 0:
+    index = round(i)
+    tree_mapping[ranked_trees[index][0]]['dataset'] = 'test'
+    ranked_trees.pop(index)
+    i -= test_step
 
+  # Everything else goes in train
+  for tree, _ in ranked_trees:
+    tree_mapping[tree]['dataset'] = 'train'
 
+  return image_row_mapping, tree_mapping
 
 # Create dataset csv
-def dataset_csv(images, image_row_mapping):
+def dataset_csvs(images, image_row_mapping, tree_mapping):
   headers = ['tree', 'score']
 
   for i in range(50):
     for key in ['r_avg', 'g_avg', 'b_avg', 'necrotic_percent']:
       headers.append(f'{key}_{str(i)}')
 
-  lines = [','.join(headers)]
+  train = [','.join(headers)]
+  validate = [','.join(headers)]
+  test = [','.join(headers)]
 
   for image in images:
-    lines.extend(image.bucket_data_rows(image_row_mapping))
+    image_train, image_validate, image_test = image.bucket_data_rows(image_row_mapping, tree_mapping)
+    train.extend(image_train)
+    validate.extend(image_validate)
+    test.extend(image_test)
 
-  return '\n'.join(lines)
+  return '\n'.join(train), '\n'.join(validate), '\n'.join(test)
 
 def write_outputs(image):
   # Highlighted image
-  highlighted_path = os.path.join('highlighted_images', f"{image.file_name_no_ext}_highlighted.png")
+  highlighted_path = os.path.join('../highlighted_images', f"{image.file_name_no_ext}_highlighted.png")
   image.get_highlighted_image().save(highlighted_path)
   print(f"  Saved highlighted image: {highlighted_path}")
 
 def main():
-  assert len(sys.argv) > 2, "Usage: python create_dataset.py image_row_mapping.csv image1.png image2.png ..."
+  assert len(sys.argv) > 3, "Usage: python create_dataset.py image_row_mapping.csv tree_score_mapping.csv image1.png image2.png ..."
 
-  image_row_mapping = create_image_row_mapping(sys.argv[1])
+  image_row_mapping, tree_mapping = create_image_row_mapping(sys.argv[1], sys.argv[2])
 
   images = []
 
-  for img_path in sys.argv[2:]:
+  # Process images
+  for img_path in sys.argv[3:]:
     image = load_file(img_path)
     write_outputs(image)
     images.append(image)
 
-  dataset_csv_path = f"data/leaf_disk_dataset.csv"
-  write_file(dataset_csv_path, dataset_csv(images, image_row_mapping))
-  print(f"Saved dataset csv: {dataset_csv_path}")
+  # Create train, validate, and test dataset csvs
+  train_csv, validate_csv, test_csv = dataset_csvs(images, image_row_mapping, tree_mapping)
+  dataset_path = '../data/{timestamp}_{dataset}.csv'
+  timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+  write_file(dataset_path.format(timestamp = timestamp, dataset = 'train'), train_csv)
+  write_file(dataset_path.format(timestamp = timestamp, dataset = 'validate'), validate_csv)
+  write_file(dataset_path.format(timestamp = timestamp, dataset = 'test'), test_csv)
+  print('Saved train, validate, and test datasets')
 
 
 if __name__ == '__main__':
